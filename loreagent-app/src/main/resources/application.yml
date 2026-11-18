@@ -1,0 +1,8 @@
+spring:
+  application:
+    name: loreagent
+
+server:
+  port: 8080
+  # 开启优雅停机，避免正在输出的流式响应或落库事务被强行截断
+  shutdown: graceful
