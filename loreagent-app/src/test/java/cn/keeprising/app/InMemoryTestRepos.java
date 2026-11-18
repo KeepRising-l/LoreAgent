@@ -1,6 +1,9 @@
 package cn.keeprising.app;
 
 import cn.keeprising.core.Failure;
+import cn.keeprising.core.RrfFusion;
+import cn.keeprising.core.Tokenizer;
+import cn.keeprising.spi.StreamChunk;
 import cn.keeprising.spi.ToolCall;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
@@ -8,6 +11,7 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.transaction.support.TransactionOperations;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -163,6 +167,163 @@ public class InMemoryTestRepos {
     }
 
     @Bean
+    @Primary
+    public DocumentRepository fakeDocumentRepository(FakeStore store) {
+        return new DocumentRepository() {
+            @Override
+            public Document upsertVersion(String userId, UUID id, String title, List<String> tags, LocalDate docDate) {
+                Instant now = store.nextTick();
+                Document existing = store.documents.values().stream()
+                        .filter(d -> d.userId().equals(userId) && d.title().equals(title))
+                        .findFirst().orElse(null);
+                List<String> safeTags = tags == null ? List.of() : List.copyOf(tags);
+                Document saved = existing == null
+                        ? new Document(id, userId, title, safeTags, docDate, 1, now, now)
+                        : new Document(existing.id(), userId, title, safeTags, docDate,
+                                existing.activeVersion() + 1, existing.createdAt(), now);
+                store.documents.put(saved.id(), saved);
+                return saved;
+            }
+
+            @Override
+            public Optional<Document> findById(String userId, UUID id) {
+                Document d = store.documents.get(id);
+                return (d != null && d.userId().equals(userId)) ? Optional.of(d) : Optional.empty();
+            }
+
+            @Override
+            public List<Document> list(String userId, String tagFilter) {
+                return store.documents.values().stream()
+                        .filter(d -> d.userId().equals(userId))
+                        .filter(d -> tagFilter == null || tagFilter.isBlank() || d.tags().contains(tagFilter.trim()))
+                        .sorted(Comparator.comparing(Document::updatedAt).reversed())
+                        .toList();
+            }
+
+            @Override
+            public long count(String userId) {
+                return store.documents.values().stream().filter(d -> d.userId().equals(userId)).count();
+            }
+
+            @Override
+            public boolean delete(String userId, UUID id) {
+                Document d = store.documents.get(id);
+                if (d == null || !d.userId().equals(userId)) {
+                    return false;
+                }
+                store.documents.remove(id);
+                store.chunks.removeIf(c -> c.documentId().equals(id));
+                return true;
+            }
+        };
+    }
+
+    @Bean
+    @Primary
+    public ChunkRepository fakeChunkRepository(FakeStore store) {
+        return new ChunkRepository() {
+            @Override
+            public void insertBatch(String userId, UUID documentId, int version, List<ChunkInsert> chunks) {
+                for (ChunkInsert c : chunks) {
+                    store.chunks.add(new ChunkRow(
+                            store.chunkId.incrementAndGet(), documentId, userId, version,
+                            c.chunkIndex(), c.heading(), c.content(), c.tokens(),
+                            c.vectorLiteral(), c.embeddingModel(), c.dim()));
+                }
+            }
+
+            @Override
+            public int deleteOldVersions(String userId, UUID documentId, int activeVersion) {
+                int before = store.chunks.size();
+                store.chunks.removeIf(c -> c.userId().equals(userId) && c.documentId().equals(documentId)
+                        && c.version() < activeVersion);
+                return before - store.chunks.size();
+            }
+
+            @Override
+            public List<ChunkRow> listActiveByDocument(String userId, UUID documentId) {
+                Document d = store.documents.get(documentId);
+                if (d == null || !d.userId().equals(userId)) {
+                    return List.of();
+                }
+                return store.chunks.stream()
+                        .filter(c -> c.userId().equals(userId) && c.documentId().equals(documentId)
+                                && c.version() == d.activeVersion())
+                        .sorted(Comparator.comparingInt(ChunkRow::chunkIndex))
+                        .toList();
+            }
+        };
+    }
+
+    @Bean
+    @Primary
+    public RunTraceRepository fakeRunTraceRepository(FakeStore store) {
+        return new RunTraceRepository() {
+            @Override
+            public void save(
+                    String userId, UUID conversationId, String requestId, String query,
+                    List<RetrievedChunkTrace> retrievedChunks, boolean degraded,
+                    String finishReason, StreamChunk.Usage usage) {
+                store.traceDocIds.put(requestId == null ? UUID.randomUUID().toString() : requestId,
+                        retrievedChunks.stream().map(RetrievedChunkTrace::documentId).toList());
+            }
+
+            @Override
+            public int deleteByDocumentId(String userId, UUID documentId) {
+                return 0;
+            }
+        };
+    }
+
+    @Bean
+    @Primary
+    public VectorSearch fakeVectorSearch() {
+        return new VectorSearch() {
+            @Override
+            public List<RrfFusion.ScoredChunk> search(
+                    String userId, float[] queryVector, String embeddingModel,
+                    String ownerFilter, List<String> tagFilters, int limit) {
+                return List.of();
+            }
+        };
+    }
+
+    @Bean
+    @Primary
+    public KeywordSearch fakeKeywordSearch(FakeStore store, Tokenizer tokenizer) {
+        return new KeywordSearch(tokenizer) {
+            @Override
+            public List<RrfFusion.ScoredChunk> search(
+                    String userId, String query, String ownerFilter, List<String> tagFilters, int limit) {
+                String tsQuery = tokenizer.toOrTsQuery(query);
+                if (tsQuery.isBlank()) {
+                    return List.of();
+                }
+                Set<String> qTerms = Set.of(tsQuery.split(" \\| "));
+                return store.chunks.stream()
+                        .filter(c -> c.userId().equals(userId))
+                        .filter(c -> {
+                            Document d = store.documents.get(c.documentId());
+                            if (d == null || c.version() != d.activeVersion()) return false;
+                            if (ownerFilter != null && !ownerFilter.isBlank() && !d.userId().equals(ownerFilter)) return false;
+                            return tagFilters == null || tagFilters.isEmpty() || d.tags().stream().anyMatch(tagFilters::contains);
+                        })
+                        .map(c -> {
+                            long hits = Arrays.stream(c.tokens().split(" ")).filter(qTerms::contains).count();
+                            Document d = store.documents.get(c.documentId());
+                            return new RrfFusion.ScoredChunk(
+                                    c.id(), c.documentId(), d.title(), c.heading(), c.content(),
+                                    c.chunkIndex(), hits, 0.0, hits);
+                        })
+                        .filter(sc -> sc.keywordScore() > 0)
+                        .sorted(Comparator.comparingDouble(RrfFusion.ScoredChunk::keywordScore).reversed())
+                        .limit(limit)
+                        .toList();
+            }
+        };
+    }
+
+    @Bean
     public FakeStore fakeStore() {
         return new FakeStore();
     }
@@ -170,7 +331,11 @@ public class InMemoryTestRepos {
     public static class FakeStore {
         final Map<UUID, Conversation> conversations = new ConcurrentHashMap<>();
         final List<ChatMessage> messages = Collections.synchronizedList(new ArrayList<>());
+        final Map<UUID, Document> documents = new ConcurrentHashMap<>();
+        final List<ChunkRepository.ChunkRow> chunks = Collections.synchronizedList(new ArrayList<>());
+        final Map<String, List<UUID>> traceDocIds = new ConcurrentHashMap<>();
         final AtomicLong msgId = new AtomicLong();
+        final AtomicLong chunkId = new AtomicLong();
         final AtomicLong clock = new AtomicLong(1_700_000_000_000L);
 
         Instant nextTick() {

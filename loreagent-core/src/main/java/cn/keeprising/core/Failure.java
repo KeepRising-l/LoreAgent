@@ -46,6 +46,8 @@ public class Failure extends RuntimeException {
         BUDGET_EXCEEDED(429, false),       // 步数/时间/token 预算用光了
         CANCELLED(499, false),             // 用户点了停止或断开了连接
         MODEL_EMPTY_RESPONSE(502, false),  // 模型啥正经字都没吐，只回了个空白
+        INVALID_CITATION(502, false),      // 引用编号 [Kn] 越界或与检索切片对不上，整次运行失败
+        EMBEDDING_UNAVAILABLE(502, true),  // Embedding 向量服务 5xx 或超时（在线问答可降级关键词检索）
         MODEL_UNAVAILABLE(502, true),      // 模型接口挂了或 500 抖动（吐字前可重试）
         TIMEOUT(504, true),                // 等模型超时了（吐字前可重试）
         TOOL_EXECUTION_FAILED(500, false), // 本地工具运行出错

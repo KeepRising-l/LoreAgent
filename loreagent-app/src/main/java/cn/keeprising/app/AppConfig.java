@@ -79,6 +79,46 @@ public class AppConfig {
         return new RunRegistry();
     }
 
+    // Phase 2：装配纯 Java 文本解析、切片、中英二元组分词与向量/引用/拒答组件
+    @Bean
+    public MarkdownParser markdownParser() {
+        return new MarkdownParser();
+    }
+
+    @Bean
+    public Chunker chunker() {
+        return new Chunker();
+    }
+
+    @Bean
+    public Tokenizer tokenizer() {
+        return new Tokenizer();
+    }
+
+    @Bean
+    public EmbeddingClient embeddingClient(
+            @Value("${lore.embedding.base-url:}") String baseUrl,
+            @Value("${lore.embedding.api-key:}") String apiKey,
+            @Value("${lore.embedding.model:text-embedding-3-small}") String model,
+            @Value("${lore.embedding.max-batch-size:16}") int maxBatchSize) {
+        return new EmbeddingClient(baseUrl, apiKey, model, maxBatchSize);
+    }
+
+    @Bean
+    public RrfFusion rrfFusion() {
+        return new RrfFusion();
+    }
+
+    @Bean
+    public RefusalPolicy refusalPolicy() {
+        return new RefusalPolicy();
+    }
+
+    @Bean
+    public CitationValidator citationValidator() {
+        return new CitationValidator();
+    }
+
     // 装配智能体执行循环，负责驱动多轮工具调用与流式输出
     @Bean
     public AgentLoop agentLoop(

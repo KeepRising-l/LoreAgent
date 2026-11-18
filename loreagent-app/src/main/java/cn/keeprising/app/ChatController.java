@@ -28,17 +28,17 @@ public class ChatController {
     private static final long SSE_TIMEOUT_MS = 300_000L;
     private static final long HEARTBEAT_INTERVAL_SEC = 5L;
 
-    private final AgentLoop agentLoop;
+    private final AnswerService answerService;
     private final ConversationService conversationService;
     private final ExecutorService chatExecutor;
     private final ScheduledExecutorService heartbeatExecutor;
 
     public ChatController(
-            AgentLoop agentLoop,
+            AnswerService answerService,
             ConversationService conversationService,
             ExecutorService chatExecutor,
             ScheduledExecutorService sseHeartbeatExecutor) {
-        this.agentLoop = agentLoop;
+        this.answerService = answerService;
         this.conversationService = conversationService;
         this.chatExecutor = chatExecutor;
         this.heartbeatExecutor = sseHeartbeatExecutor;
@@ -72,29 +72,34 @@ public class ChatController {
                 () -> sendCommentSafe(emitter, sendLock, cancellation),
                 HEARTBEAT_INTERVAL_SEC, HEARTBEAT_INTERVAL_SEC, TimeUnit.SECONDS);
 
+        RetrievalService.Scope scope = request.scope() == null
+                ? null : new RetrievalService.Scope(request.scope().owner(), request.scope().tags());
+
         Future<?> taskFuture = chatExecutor.submit(() -> {
             StepCollector collector = new StepCollector(turn.conversationId());
             try {
                 log.info("{} event=chat_start model={}", trace.logPrefix(), request.model());
-                AgentEvent.Done done = agentLoop.run(
-                        trace, request.model(), turn.history(), new RunBudget(), cancellation,
+                AnswerService.AnswerOutcome outcome = answerService.answer(
+                        trace, AppConfig.LOCAL_USER, turn.conversationId(), request.model(),
+                        turn.userQuery(), turn.history(), scope, new RunBudget(), cancellation,
                         event -> {
                             collector.accept(event);
                             if (!(event instanceof AgentEvent.Done)) {
-                                sendEventSafe(emitter, sendLock, cancellation, event, turn);
+                                sendEventSafe(emitter, sendLock, cancellation, event, turn, null);
                             }
                         });
                 // 必须先事务落库成功，再发 SSE done 事件（验收 #6：禁止只吐流不落库静默成功）
                 conversationService.persistTurnOutputs(
-                        AppConfig.LOCAL_USER, turn.conversationId(), clientRequestId, collector.steps(), done);
-                sendEventSafe(emitter, sendLock, cancellation, done, turn);
+                        AppConfig.LOCAL_USER, turn.conversationId(), clientRequestId,
+                        collector.steps(), outcome.done(), outcome.citationsJson());
+                sendEventSafe(emitter, sendLock, cancellation, outcome.done(), turn, outcome.citations());
                 completeSafe(emitter, sendLock);
             } catch (Failure failure) {
                 conversationService.abortTurn(turn.conversationId(), clientRequestId);
                 log.warn("{} event=chat_failed code={}", trace.logPrefix(), failure.code());
                 if (failure.code() == Failure.ErrorCode.STORAGE_ERROR) {
                     sendEventSafe(emitter, sendLock, cancellation,
-                            new AgentEvent.Error(trace.requestId(), failure.code().name(), failure.getMessage()), turn);
+                            new AgentEvent.Error(trace.requestId(), failure.code().name(), failure.getMessage()), turn, null);
                 }
                 completeSafe(emitter, sendLock);
             } catch (RuntimeException e) {
@@ -120,10 +125,11 @@ public class ChatController {
         SseEmitter emitter = new SseEmitter(SSE_TIMEOUT_MS);
         Object lock = new Object();
         Cancellation noop = new Cancellation();
-        ConversationService.TurnStart meta = new ConversationService.TurnStart(conversationId, 0L, List.of(), content, requestId);
+        ConversationService.TurnStart meta = new ConversationService.TurnStart(
+                conversationId, 0L, null, List.of(), content, requestId, null);
         chatExecutor.submit(() -> {
-            sendEventSafe(emitter, lock, noop, new AgentEvent.Delta(requestId, content), meta);
-            sendEventSafe(emitter, lock, noop, new AgentEvent.Done(requestId, "stop", content, null), meta);
+            sendEventSafe(emitter, lock, noop, new AgentEvent.Delta(requestId, content), meta, null);
+            sendEventSafe(emitter, lock, noop, new AgentEvent.Done(requestId, "stop", content, null), meta, null);
             completeSafe(emitter, lock);
         });
         return emitter;
@@ -131,7 +137,7 @@ public class ChatController {
 
     private void sendEventSafe(
             SseEmitter emitter, Object sendLock, Cancellation cancellation,
-            AgentEvent event, ConversationService.TurnStart turn) {
+            AgentEvent event, ConversationService.TurnStart turn, List<CitationValidator.Citation> citations) {
         if (cancellation.isCancelled()) {
             return;
         }
@@ -157,6 +163,9 @@ public class ChatController {
                     payload.put("userMessageId", turn.userMessageId());
                     payload.put("finishReason", dn.finishReason());
                     payload.put("usage", dn.usage());
+                    if (citations != null && !citations.isEmpty()) {
+                        payload.put("citations", citations);
+                    }
                     emitter.send(SseEmitter.event().name("done").data(payload));
                 } else if (event instanceof AgentEvent.Error err) {
                     Map<String, Object> payload = new LinkedHashMap<>();
@@ -232,6 +241,10 @@ public class ChatController {
     }
 
     public record ChatRequest(
-            String message, String model, String clientRequestId, String conversationId, Long retryMessageId) {
+            String message, String model, String clientRequestId, String conversationId,
+            Long retryMessageId, ScopeRequest scope) {
+    }
+
+    public record ScopeRequest(String owner, List<String> tags) {
     }
 }

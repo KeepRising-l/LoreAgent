@@ -286,7 +286,7 @@ class ChatControllerTest {
         HttpResponse<String> response = client.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
 
         assertThat(response.statusCode()).isEqualTo(200);
-        assertThat(response.body()).contains("LoreAgent").contains("Phase 1.5");
+        assertThat(response.body()).contains("LoreAgent").contains("Phase 2");
     }
 
     private String createConversation() throws Exception {

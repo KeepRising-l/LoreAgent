@@ -1,0 +1,70 @@
+[
+  {
+    "id": "eval_01",
+    "question": "在 PostgreSQL 16 和 pgvector 中，HNSW 索引的 m、ef_construction、ef_search 参数分别控制什么？为什么 chunks 表建议使用无固定维度的 vector 列？",
+    "expectedDocs": [
+      "PostgreSQL 16 与 pgvector HNSW 索引原理及参数调优笔记"
+    ],
+    "keyFacts": [
+      "m",
+      "ef_construction",
+      "ef_search",
+      "无固定维度",
+      "多模型"
+    ],
+    "shouldRefuse": false
+  },
+  {
+    "id": "eval_02",
+    "question": "为什么 PostgreSQL 使用二元组分词后如果查询侧用 plainto_tsquery 查中文长问句往往返回空？应该怎么改写查询？",
+    "expectedDocs": [
+      "PostgreSQL 中文全文检索实战：二元组分词与 plainto_tsquery 避坑"
+    ],
+    "keyFacts": [
+      "plainto_tsquery",
+      "AND",
+      "OR",
+      "to_tsquery",
+      "ts_rank"
+    ],
+    "shouldRefuse": false
+  },
+  {
+    "id": "eval_03",
+    "question": "Spring MVC 使用 SseEmitter 推送大模型流式回复时，如果等待首字或慢工具期间客户端断开，为什么容器不会马上知道？应该怎么处理？",
+    "expectedDocs": [
+      "Spring Boot 下 SseEmitter 流式输出与客户端断连取消传播"
+    ],
+    "keyFacts": [
+      "心跳",
+      "ping",
+      "IOException",
+      "Cancellation",
+      "30"
+    ],
+    "shouldRefuse": false
+  },
+  {
+    "id": "eval_04",
+    "question": "混合检索中 RRF（倒数排名融合）公式是什么？平滑常数 k 默认一般取多少，为什么要这样合并向量检索和关键词检索？",
+    "expectedDocs": [
+      "混合检索（Hybrid Search）与 RRF 倒数排名融合实践"
+    ],
+    "keyFacts": [
+      "1/(k+rank)",
+      "60",
+      "量纲",
+      "chunkId"
+    ],
+    "shouldRefuse": false
+  },
+  {
+    "id": "eval_05",
+    "question": "请问昨天北京故宫博物院的闭馆维护通知和下周门票预约抢票时间规则是什么？",
+    "expectedDocs": [],
+    "keyFacts": [
+      "依据不足"
+    ],
+    "shouldRefuse": true
+  }
+]

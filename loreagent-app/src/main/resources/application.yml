@@ -27,3 +27,8 @@ lore:
     # 密钥绝不入库：本地通过环境变量或 application-local.yml 提供
     api-key: ${LORE_MODEL_API_KEY:}
     name: ${LORE_MODEL_NAME:auto/deepseek-v4.1-flash}
+  embedding:
+    base-url: ${LORE_EMBEDDING_BASE_URL:https://api.openai.com/v1}
+    api-key: ${LORE_EMBEDDING_API_KEY:}
+    model: ${LORE_EMBEDDING_MODEL:text-embedding-3-small}
+    max-batch-size: ${LORE_EMBEDDING_MAX_BATCH_SIZE:16}

@@ -3,258 +3,138 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>LoreAgent · Phase 1.5 会话持久化</title>
+  <title>LoreAgent · Phase 2 RAG 基础</title>
   <style>
     :root {
-      --bg: #f4f6fb;
-      --card: #ffffff;
-      --border: #e4e7ef;
-      --text: #181c28;
-      --muted: #64748b;
-      --accent: #4f46e5;
-      --accent-soft: #eef2ff;
-      --green: #059669;
-      --green-soft: #ecfdf5;
-      --amber: #d97706;
-      --amber-soft: #fffbeb;
-      --red: #dc2626;
-      --red-soft: #fef2f2;
+      --bg: #f4f6fb; --card: #ffffff; --border: #e2e8f0; --text: #0f172a; --muted: #64748b;
+      --accent: #4f46e5; --accent-soft: #eef2ff; --green: #059669; --green-soft: #ecfdf5;
+      --amber: #d97706; --amber-soft: #fffbeb; --red: #dc2626; --red-soft: #fef2f2;
     }
     * { box-sizing: border-box; }
     body {
-      margin: 0;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      height: 100vh;
-      display: flex;
-      justify-content: center;
+      margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: var(--bg); color: var(--text); height: 100vh; overflow: hidden;
     }
     .layout {
-      width: 100%;
-      max-width: 1120px;
-      height: 100vh;
-      display: grid;
-      grid-template-columns: 260px 1fr;
-      padding: 14px;
-      gap: 12px;
+      max-width: 1440px; margin: 0 auto; height: 100vh; padding: 12px; gap: 12px;
+      display: grid; grid-template-columns: 240px 1fr 330px;
     }
-    .sidebar {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      padding: 12px;
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-      overflow: hidden;
+    @media (max-width: 1080px) { .layout { grid-template-columns: 220px 1fr; } .kb-panel { display: none; } }
+    .panel {
+      background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+      padding: 12px; display: flex; flex-direction: column; gap: 10px; overflow: hidden; min-height: 0;
     }
-    .sidebar-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
+    .head-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .scroll-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; min-height: 0; }
+    .conv-item, .doc-item {
+      border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; background: #f8fafc;
+      display: flex; flex-direction: column; gap: 4px;
     }
-    .conv-list {
-      flex: 1;
-      overflow-y: auto;
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-    }
-    .conv-item {
-      border: 1px solid transparent;
-      border-radius: 10px;
-      padding: 8px 10px;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 6px;
-      background: #f8fafc;
-    }
-    .conv-item.active {
-      background: var(--accent-soft);
-      border-color: #c7d2fe;
-    }
-    .conv-title {
-      font-size: 13px;
-      font-weight: 500;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      flex: 1;
-    }
-    .conv-actions { display: flex; gap: 4px; opacity: 0.75; }
-    .icon-btn {
-      border: none;
-      background: transparent;
-      cursor: pointer;
-      font-size: 12px;
-      padding: 2px 4px;
-      border-radius: 4px;
-    }
+    .conv-item { flex-direction: row; align-items: center; justify-content: space-between; cursor: pointer; border-color: transparent; }
+    .conv-item.active { background: var(--accent-soft); border-color: #c7d2fe; }
+    .conv-title { font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+    .icon-btn { border: none; background: transparent; cursor: pointer; font-size: 12px; padding: 2px 5px; border-radius: 4px; }
     .icon-btn:hover { background: rgba(15, 23, 42, 0.08); }
-    .main {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-      min-width: 0;
-      height: calc(100vh - 28px);
-    }
+    .main { display: flex; flex-direction: column; gap: 10px; min-width: 0; min-height: 0; }
     .topbar {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      padding: 11px 16px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-      flex-wrap: wrap;
+      background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+      padding: 10px 16px; display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
     }
     .brand { display: flex; align-items: center; gap: 10px; }
     .brand-title { font-weight: 700; font-size: 16px; }
-    .pill {
-      font-size: 12px;
-      padding: 3px 9px;
-      border-radius: 999px;
-      background: var(--accent-soft);
-      color: var(--accent);
-      font-weight: 600;
-    }
+    .pill { font-size: 12px; padding: 3px 9px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-weight: 600; }
     .health-pill { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
     .dot { width: 8px; height: 8px; border-radius: 50%; background: #cbd5e1; }
-    .dot.ok { background: var(--green); }
-    .dot.bad { background: var(--red); }
+    .dot.ok { background: var(--green); } .dot.bad { background: var(--red); }
     .chat-box {
-      flex: 1;
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      padding: 16px;
-      overflow-y: auto;
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
+      flex: 1; background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+      padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; min-height: 0;
     }
     .empty { margin: auto; text-align: center; max-width: 480px; color: var(--muted); }
     .empty h3 { margin: 0 0 6px; color: var(--text); font-size: 16px; }
-    .empty p { margin: 0 0 14px; font-size: 13px; line-height: 1.6; }
+    .empty p { margin: 0 0 12px; font-size: 13px; line-height: 1.6; }
     .quick-row { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
     .quick-btn {
-      border: 1px solid var(--border);
-      background: #fafbff;
-      color: var(--text);
-      padding: 7px 12px;
-      border-radius: 999px;
-      font-size: 13px;
-      cursor: pointer;
+      border: 1px solid var(--border); background: #fafbff; color: var(--text);
+      padding: 7px 12px; border-radius: 999px; font-size: 13px; cursor: pointer;
     }
     .quick-btn:hover { border-color: var(--accent); background: var(--accent-soft); }
-    .msg { display: flex; flex-direction: column; max-width: 82%; gap: 6px; }
+    .msg { display: flex; flex-direction: column; max-width: 86%; gap: 6px; }
     .msg.user { align-self: flex-end; align-items: flex-end; }
-    .msg.assistant { align-self: flex-start; align-items: flex-start; width: 82%; }
+    .msg.assistant { align-self: flex-start; align-items: flex-start; width: 86%; }
     .bubble {
-      padding: 10px 14px;
-      border-radius: 12px;
-      font-size: 14px;
-      line-height: 1.65;
-      white-space: pre-wrap;
-      word-break: break-word;
+      padding: 10px 14px; border-radius: 12px; font-size: 14px; line-height: 1.65;
+      white-space: pre-wrap; word-break: break-word;
     }
     .msg.user .bubble { background: var(--accent); color: #fff; border-bottom-right-radius: 4px; }
     .msg.assistant .bubble { background: #f8fafc; border: 1px solid var(--border); border-bottom-left-radius: 4px; width: 100%; }
-    .tools-wrap { display: flex; flex-direction: column; gap: 6px; width: 100%; }
-    .tool-card {
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      font-size: 12px;
-      padding: 7px 10px;
-      border-radius: 8px;
-      border: 1px solid var(--border);
-      display: flex;
-      justify-content: space-between;
-      gap: 8px;
-      flex-wrap: wrap;
+    .tools-wrap, .cites-wrap { display: flex; flex-direction: column; gap: 6px; width: 100%; }
+    .tool-card, .cite-card {
+      font-size: 12px; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--border);
+      display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap;
     }
+    .tool-card { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
     .tool-card.running { border-color: #c7d2fe; background: var(--accent-soft); color: var(--accent); }
     .tool-card.ok { border-color: #a7f3d0; background: var(--green-soft); color: var(--green); }
-    .tool-card.err { border-color: #fecaca; background: var(--red-soft); color: var(--red); }
+    .cite-card { background: #f8fafc; border-color: #c7d2fe; flex-direction: column; gap: 3px; }
+    .cite-head { font-weight: 600; color: var(--accent); display: flex; justify-content: space-between; }
+    .cite-snippet { color: var(--muted); line-height: 1.45; }
     .meta-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 11px; color: var(--muted); }
-    .tag { padding: 2px 7px; border-radius: 6px; background: #f1f5f9; color: #475569; }
+    .tag { padding: 2px 7px; border-radius: 6px; background: #f1f5f9; color: #475569; font-size: 11px; }
     .tag.warn { background: var(--amber-soft); color: var(--amber); font-weight: 600; }
     .tag.ok { background: var(--green-soft); color: var(--green); font-weight: 600; }
     .toast {
-      display: none;
-      padding: 9px 13px;
-      border-radius: 10px;
-      font-size: 13px;
-      border: 1px solid var(--border);
-      background: var(--card);
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
+      display: none; padding: 8px 12px; border-radius: 10px; font-size: 13px; border: 1px solid var(--border);
+      background: var(--card); align-items: center; justify-content: space-between; gap: 10px;
     }
     .toast.show { display: flex; }
     .toast.err { background: var(--red-soft); border-color: #fecaca; color: var(--red); }
     .toast.info { background: var(--accent-soft); border-color: #c7d2fe; color: var(--accent); }
     .composer {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      padding: 12px;
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
+      background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+      padding: 10px 12px; display: flex; flex-direction: column; gap: 8px;
     }
     .debug-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
-    .debug-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+    .debug-actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
     .mini-btn {
-      border: 1px solid var(--border);
-      background: #f8fafc;
-      color: var(--text);
-      font-size: 12px;
-      padding: 4px 10px;
-      border-radius: 7px;
-      cursor: pointer;
+      border: 1px solid var(--border); background: #f8fafc; color: var(--text); font-size: 12px;
+      padding: 4px 9px; border-radius: 7px; cursor: pointer;
     }
     .mini-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
     .mini-btn:disabled { opacity: 0.45; cursor: not-allowed; }
     .status-text { font-size: 12px; color: var(--muted); }
     .input-row { display: flex; gap: 8px; align-items: flex-end; }
-    textarea {
-      flex: 1;
-      resize: none;
-      height: 52px;
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 10px 12px;
-      font: inherit;
-      font-size: 14px;
-      outline: none;
+    input[type="text"], input[type="date"], textarea {
+      border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; font: inherit; font-size: 13px; outline: none;
     }
-    textarea:focus { border-color: var(--accent); }
-    .btn { border: none; border-radius: 10px; padding: 0 18px; height: 44px; font-size: 14px; font-weight: 600; cursor: pointer; }
+    input:focus, textarea:focus { border-color: var(--accent); }
+    .scope-input { width: 170px; font-size: 12px !important; padding: 4px 8px !important; }
+    textarea#msgInput { flex: 1; resize: none; height: 48px; border-radius: 10px; font-size: 14px; }
+    .btn { border: none; border-radius: 10px; padding: 0 16px; height: 42px; font-size: 14px; font-weight: 600; cursor: pointer; }
     .btn:disabled { opacity: 0.45; cursor: not-allowed; }
     .btn-primary { background: var(--accent); color: #fff; }
     .btn-stop { background: var(--red-soft); color: var(--red); border: 1px solid #fecaca; }
+    .form-box { display: flex; flex-direction: column; gap: 6px; padding: 8px; background: #f8fafc; border-radius: 10px; border: 1px solid var(--border); }
+    .form-row { display: flex; gap: 6px; }
+    .form-row > * { flex: 1; min-width: 0; }
+    .debug-hit { font-size: 12px; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--border); background: #fff; }
   </style>
 </head>
 <body>
   <div class="layout">
-    <aside class="sidebar">
-      <div class="sidebar-head">
-        <strong>会话列表（PG 持久化）</strong>
+    <aside class="panel">
+      <div class="head-row">
+        <strong>会话列表</strong>
         <button id="newConvBtn" class="mini-btn">+ 新建</button>
       </div>
-      <div id="convList" class="conv-list"></div>
+      <div id="convList" class="scroll-list"></div>
     </aside>
 
     <div class="main">
       <header class="topbar">
         <div class="brand">
           <span class="brand-title">LoreAgent</span>
-          <span class="pill">Phase 1.5 · 会话持久化</span>
+          <span class="pill">Phase 2 · RAG 基础</span>
           <span class="health-pill"><span id="healthDot" class="dot"></span><span id="healthText">检查中</span></span>
         </div>
         <span id="convIdBadge" class="status-text">未选会话</span>
@@ -270,24 +150,56 @@
       <section class="composer">
         <div class="debug-bar">
           <div class="debug-actions">
-            <button id="raceBtn" class="mini-btn">⚡ 同会话插队 (测 409)</button>
-            <button id="replayBtn" class="mini-btn" disabled>🔁 复发上次 RequestId (测幂等)</button>
+            <input id="scopeTagsInput" class="scope-input" type="text" placeholder="检索标签作用域 (如 postgres,nlp)" />
+            <button id="raceBtn" class="mini-btn">⚡ 插队 409</button>
+            <button id="replayBtn" class="mini-btn" disabled>🔁 复发幂等</button>
           </div>
           <span id="statusText" class="status-text">空闲</span>
         </div>
         <div class="input-row">
-          <textarea id="msgInput" placeholder="输入问题（Enter 发送，Shift+Enter 换行）..."></textarea>
+          <textarea id="msgInput" placeholder="输入问题（知识库有文档时自动走 RAG + [K1] 引用，Enter 发送）..."></textarea>
           <button id="sendBtn" class="btn btn-primary">发送</button>
           <button id="stopBtn" class="btn btn-stop" disabled>停止</button>
         </div>
       </section>
     </div>
+
+    <aside class="panel kb-panel">
+      <div class="head-row">
+        <strong>知识库文档</strong>
+        <button id="refreshDocsBtn" class="mini-btn">刷新</button>
+      </div>
+      <div class="form-box">
+        <input id="docTitle" type="text" placeholder="文档标题（同名重传覆盖旧切片）" />
+        <div class="form-row">
+          <input id="docTags" type="text" placeholder="标签(逗号隔开)" />
+          <input id="docDate" type="date" />
+        </div>
+        <input id="docFile" type="file" accept=".md,.txt,text/markdown" style="font-size:11px;" />
+        <textarea id="docContent" rows="4" placeholder="粘贴或通过上方选择 Markdown 内容..."></textarea>
+        <button id="uploadDocBtn" class="mini-btn" style="background:var(--accent);color:#fff;border:none;padding:6px;">上传入库</button>
+      </div>
+      <div class="form-row">
+        <input id="filterTagInput" type="text" placeholder="按标签筛选列表..." />
+        <button id="filterDocBtn" class="mini-btn" style="flex:0 0 auto;">筛选</button>
+      </div>
+      <div id="docList" class="scroll-list" style="max-height:190px;"></div>
+      <div class="head-row" style="margin-top:2px;">
+        <strong style="font-size:13px;">检索调试 (/api/retrieval/debug)</strong>
+      </div>
+      <div class="form-row">
+        <input id="debugQuery" type="text" placeholder="测试长问句召回..." />
+        <button id="debugBtn" class="mini-btn" style="flex:0 0 auto;">检索</button>
+      </div>
+      <div id="debugResult" class="scroll-list"></div>
+    </aside>
   </div>
 
   <script>
     const convListEl = document.getElementById('convList');
     const chatBox = document.getElementById('chatBox');
     const msgInput = document.getElementById('msgInput');
+    const scopeTagsInput = document.getElementById('scopeTagsInput');
     const sendBtn = document.getElementById('sendBtn');
     const stopBtn = document.getElementById('stopBtn');
     const newConvBtn = document.getElementById('newConvBtn');
@@ -297,6 +209,8 @@
     const convIdBadge = document.getElementById('convIdBadge');
     const toastEl = document.getElementById('toast');
     const toastText = document.getElementById('toastText');
+    const docListEl = document.getElementById('docList');
+    const debugResultEl = document.getElementById('debugResult');
 
     let conversations = [];
     let currentConvId = null;
@@ -309,6 +223,10 @@
       toastEl.className = `toast show ${type}`;
     }
     function hideToast() { toastEl.className = 'toast'; }
+
+    function parseTags(raw) {
+      return (raw || '').split(',').map(s => s.trim()).filter(Boolean);
+    }
 
     async function checkHealth() {
       const dot = document.getElementById('healthDot');
@@ -337,8 +255,7 @@
       if (!conversations.length) {
         const p = document.createElement('div');
         p.className = 'status-text';
-        p.style.padding = '8px';
-        p.textContent = '暂无会话，点击新建或直接发送消息';
+        p.textContent = '暂无会话';
         convListEl.appendChild(p);
         return;
       }
@@ -351,29 +268,23 @@
         title.onclick = () => selectConversation(c.id);
 
         const actions = document.createElement('div');
-        actions.className = 'conv-actions';
         const renameBtn = document.createElement('button');
-        renameBtn.className = 'icon-btn';
-        renameBtn.textContent = '✏️';
-        renameBtn.title = '重命名';
+        renameBtn.className = 'icon-btn'; renameBtn.textContent = '✏️';
         renameBtn.onclick = async (e) => {
           e.stopPropagation();
           const next = prompt('输入新标题', c.title);
           if (!next || !next.trim()) return;
           const res = await fetch(`/api/conversations/${c.id}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ title: next.trim() })
           });
           if (res.ok) await refreshConversations(c.id);
         };
         const delBtn = document.createElement('button');
-        delBtn.className = 'icon-btn';
-        delBtn.textContent = '🗑️';
-        delBtn.title = '删除会话';
+        delBtn.className = 'icon-btn'; delBtn.textContent = '🗑️';
         delBtn.onclick = async (e) => {
           e.stopPropagation();
-          if (!confirm(`确定删除会话“${c.title}”及其所有消息吗？`)) return;
+          if (!confirm(`确定删除会话“${c.title}”吗？`)) return;
           const res = await fetch(`/api/conversations/${c.id}`, { method: 'DELETE' });
           if (res.ok) {
             delete messagesByConv[c.id];
@@ -387,7 +298,6 @@
       }
     }
 
-    // 把数据库返回的 ChatMessage 列表折叠成便于界面渲染的消息卡片（合并工具调用步骤到助手卡片）
     function toUiItems(dbMessages) {
       const items = [];
       let pendingTools = [];
@@ -397,21 +307,19 @@
           items.push({ id: m.id, role: 'user', text: m.content });
         } else if (m.role === 'assistant' && m.toolCalls && m.toolCalls.length) {
           for (const tc of m.toolCalls) {
-            pendingTools.push({ id: tc.id, name: tc.name, arguments: tc.argumentsJson, status: 'running' });
+            pendingTools.push({ id: tc.id, name: tc.name, arguments: tc.argumentsJson, status: 'done', success: true });
           }
         } else if (m.role === 'tool') {
           const callId = m.toolCalls && m.toolCalls[0] ? m.toolCalls[0].id : null;
           const target = pendingTools.find(t => t.id === callId);
-          if (target) {
-            target.status = 'done';
-            target.success = true;
-            target.output = m.content;
-          }
+          if (target) target.output = m.content;
         } else if (m.role === 'assistant') {
+          let parsedCites = [];
+          if (m.citationsJson) {
+            try { parsedCites = JSON.parse(m.citationsJson); } catch {}
+          }
           items.push({
-            role: 'assistant',
-            text: m.content,
-            tools: pendingTools,
+            role: 'assistant', text: m.content, tools: pendingTools, citations: parsedCites,
             meta: m.requestId ? { requestId: m.requestId } : null
           });
           pendingTools = [];
@@ -424,37 +332,25 @@
       const res = await fetch('/api/conversations');
       if (!res.ok) return;
       conversations = await res.json();
-      if (preferId && conversations.some(c => c.id === preferId)) {
-        currentConvId = preferId;
-      } else if (!currentConvId && conversations.length) {
-        currentConvId = conversations[0].id;
-      }
+      if (preferId && conversations.some(c => c.id === preferId)) currentConvId = preferId;
+      else if (!currentConvId && conversations.length) currentConvId = conversations[0].id;
       renderSidebar();
       syncComposerState();
-      if (currentConvId && !controllers[currentConvId]) {
-        await loadHistory(currentConvId);
-      } else {
-        renderChat();
-      }
+      if (currentConvId && !controllers[currentConvId]) await loadHistory(currentConvId);
+      else renderChat();
     }
 
     async function selectConversation(id) {
       currentConvId = id;
       localStorage.setItem('lore_last_conv', id);
-      renderSidebar();
-      syncComposerState();
-      if (!controllers[id]) {
-        await loadHistory(id);
-      } else {
-        renderChat();
-      }
+      renderSidebar(); syncComposerState();
+      if (!controllers[id]) await loadHistory(id); else renderChat();
     }
 
     async function loadHistory(id) {
       const res = await fetch(`/api/conversations/${id}/messages`);
       if (!res.ok) return;
-      const rows = await res.json();
-      messagesByConv[id] = toUiItems(rows);
+      messagesByConv[id] = toUiItems(await res.json());
       renderChat();
     }
 
@@ -465,11 +361,11 @@
         const empty = document.createElement('div');
         empty.className = 'empty';
         empty.innerHTML = `
-          <h3>Phase 1.5 会话与消息持久化</h3>
-          <p>刷新页面不丢历史、支持新建/重命名/删除级联，以及已完成 <code>requestId</code> 的持久化幂等回放。</p>
+          <h3>Phase 2 · RAG 基础问答演示台</h3>
+          <p>右侧可上传 Markdown 笔记与调试混合检索（向量 + 中文二元组关键词 + RRF）。知识库入库后提问将自动带 <code>[K1]</code> 引用或拒答「依据不足」。</p>
           <div class="quick-row">
-            <button class="quick-btn" data-q="请帮我算一下 (12 + 8) * 3 等于多少？">🧮 帮我算 (12 + 8) * 3</button>
-            <button class="quick-btn" data-q="请用两句话通俗解释什么是 RAG？">💬 两句话解释 RAG</button>
+            <button class="quick-btn" data-q="请帮我算一下 (12 + 8) * 3 等于多少？">🧮 算式测试 CalcTool</button>
+            <button class="quick-btn" data-q="为什么 PostgreSQL 用 plainto_tsquery 查中文长问句返回空？">🔍 中文检索原理</button>
           </div>`;
         empty.querySelectorAll('.quick-btn').forEach(btn => {
           btn.onclick = () => { msgInput.value = btn.dataset.q; sendMessage(); };
@@ -487,14 +383,10 @@
           toolsWrap.className = 'tools-wrap';
           for (const t of item.tools) {
             const tc = document.createElement('div');
-            tc.className = `tool-card ${t.status === 'running' ? 'running' : (t.success ? 'ok' : 'err')}`;
-            const left = document.createElement('span');
-            left.textContent = t.status === 'running'
+            tc.className = `tool-card ${t.status === 'running' ? 'running' : 'ok'}`;
+            tc.textContent = t.status === 'running'
               ? `⚙️ 执行中 ${t.name}(${t.arguments || ''})`
-              : `${t.success ? '✅' : '❌'} ${t.name}(${t.arguments || ''}) → ${t.output ?? ''}`;
-            const right = document.createElement('span');
-            right.textContent = t.status === 'running' ? '运行中...' : '已完成';
-            tc.append(left, right);
+              : `✅ ${t.name}(${t.arguments || ''}) → ${t.output ?? ''}`;
             toolsWrap.appendChild(tc);
           }
           wrap.appendChild(toolsWrap);
@@ -506,30 +398,37 @@
         if (item.error) bubble.style.color = 'var(--red)';
         wrap.appendChild(bubble);
 
+        if (item.citations && item.citations.length) {
+          const citesWrap = document.createElement('div');
+          citesWrap.className = 'cites-wrap';
+          for (const c of item.citations) {
+            const card = document.createElement('div');
+            card.className = 'cite-card';
+            card.innerHTML = `<div class="cite-head"><span>[${c.refId}] ${c.title}</span><span>chunk #${c.chunkId}</span></div><div class="cite-snippet"></div>`;
+            card.querySelector('.cite-snippet').textContent = c.snippet;
+            citesWrap.appendChild(card);
+          }
+          wrap.appendChild(citesWrap);
+        }
+
         if (item.meta || (item.error && item.retryMessageId)) {
           const metaRow = document.createElement('div');
           metaRow.className = 'meta-row';
           const addTag = (txt, cls = '') => {
             const s = document.createElement('span');
-            s.className = `tag ${cls}`.trim();
-            s.textContent = txt;
-            metaRow.appendChild(s);
+            s.className = `tag ${cls}`.trim(); s.textContent = txt; metaRow.appendChild(s);
           };
-          if (item.meta?.replayed) addTag('⚡ 持久化幂等回放', 'ok');
-          if (item.meta?.stopped) addTag('⏹ 已取消', 'warn');
+          if (item.meta?.replayed) addTag('⚡ 幂等回放', 'ok');
+          if (item.meta?.stopped) addTag('⏹ 已停止', 'warn');
           if (item.meta?.finishReason) addTag(`finish: ${item.meta.finishReason}`, item.meta.finishReason === 'length' ? 'warn' : '');
-          if (item.meta?.tokens != null) addTag(`tokens: ${item.meta.tokens}`);
-          if (item.meta?.elapsedMs != null) addTag(`${item.meta.elapsedMs}ms`);
           if (item.meta?.requestId) addTag(`req: ${item.meta.requestId.slice(0, 8)}`);
           if (item.error && item.retryMessageId) {
             const retryBtn = document.createElement('button');
             retryBtn.className = 'mini-btn';
-            retryBtn.textContent = '🔄 重试（不重插 user 消息）';
+            retryBtn.textContent = '🔄 重试（复用 user 消息）';
             retryBtn.onclick = () => runChatRequest({
-              message: '',
-              conversationId: currentConvId,
-              clientRequestId: crypto.randomUUID(),
-              retryMessageId: item.retryMessageId
+              message: '', conversationId: currentConvId,
+              clientRequestId: crypto.randomUUID(), retryMessageId: item.retryMessageId
             });
             metaRow.appendChild(retryBtn);
           }
@@ -548,24 +447,15 @@
         if (line.startsWith('event:')) eventName = line.slice(6).trim();
         else if (line.startsWith('data:')) dataLines.push(line.slice(5).replace(/^ /, ''));
       }
-      if (!dataLines.length) return;
-      handlers(eventName, JSON.parse(dataLines.join('\n')));
+      if (dataLines.length) handlers(eventName, JSON.parse(dataLines.join('\n')));
     }
 
     async function runChatRequest({ message, conversationId, clientRequestId, retryMessageId = null, isReplay = false }) {
       let targetConv = conversationId;
       if (!targetConv) {
-        const res = await fetch('/api/conversations', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({})
-        });
-        if (!res.ok) {
-          showToast('自动创建会话失败', 'err');
-          return;
-        }
-        const created = await res.json();
-        targetConv = created.id;
+        const res = await fetch('/api/conversations', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+        if (!res.ok) { showToast('创建会话失败', 'err'); return; }
+        targetConv = (await res.json()).id;
         currentConvId = targetConv;
         localStorage.setItem('lore_last_conv', targetConv);
         messagesByConv[targetConv] = [];
@@ -573,53 +463,43 @@
       }
 
       messagesByConv[targetConv] = messagesByConv[targetConv] || [];
-      if (!retryMessageId) {
-        messagesByConv[targetConv].push({ role: 'user', text: isReplay ? `[复发幂等请求] ${message}` : message });
-      }
-      const assistantItem = { role: 'assistant', text: '', tools: [], meta: null, error: null, retryMessageId };
+      if (!retryMessageId) messagesByConv[targetConv].push({ role: 'user', text: isReplay ? `[幂等复发] ${message}` : message });
+      const assistantItem = { role: 'assistant', text: '', tools: [], citations: [], meta: null, error: null, retryMessageId };
       messagesByConv[targetConv].push(assistantItem);
       if (targetConv === currentConvId) renderChat();
 
-      const startedAt = performance.now();
       const controller = new AbortController();
       controllers[targetConv] = controller;
-      if (targetConv === currentConvId) syncComposerState(isReplay ? '验证幂等回放中...' : '模型生成中...');
+      if (targetConv === currentConvId) syncComposerState('生成中...');
+
+      const scopeTags = parseTags(scopeTagsInput.value);
+      const scope = scopeTags.length ? { tags: scopeTags } : null;
 
       try {
         const res = await fetch('/api/chat', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message, conversationId: targetConv, clientRequestId, retryMessageId }),
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message, conversationId: targetConv, clientRequestId, retryMessageId, scope }),
           signal: controller.signal
         });
-
         if (!res.ok) {
           const err = await res.json().catch(() => ({ code: String(res.status), message: res.statusText }));
           assistantItem.error = err;
           if (targetConv === currentConvId) renderChat();
-          showToast(`请求被拒绝 HTTP ${res.status} [${err.code}]: ${err.message}`, 'err');
+          showToast(`HTTP ${res.status} [${err.code}]: ${err.message}`, 'err');
           return;
         }
-
         const reader = res.body.getReader();
         const decoder = new TextDecoder('utf-8');
         let buffer = '';
         const onEvent = (name, data) => {
-          if (name === 'delta') {
-            assistantItem.text += data.text || '';
-          } else if (name === 'tool_started') {
-            assistantItem.tools.push({ id: data.toolCallId, name: data.toolName, arguments: data.arguments || '', status: 'running' });
-          } else if (name === 'tool_finished') {
+          if (name === 'delta') assistantItem.text += data.text || '';
+          else if (name === 'tool_started') assistantItem.tools.push({ id: data.toolCallId, name: data.toolName, arguments: data.arguments || '', status: 'running' });
+          else if (name === 'tool_finished') {
             const t = assistantItem.tools.find(x => x.id === data.toolCallId);
-            if (t) { t.status = 'done'; t.success = data.success; t.output = data.output; }
+            if (t) { t.status = 'done'; t.success = true; t.output = data.output; }
           } else if (name === 'done') {
-            assistantItem.meta = {
-              requestId: data.requestId,
-              finishReason: data.finishReason || 'stop',
-              tokens: data.usage ? data.usage.totalTokens : null,
-              elapsedMs: Math.round(performance.now() - startedAt),
-              replayed: isReplay
-            };
+            assistantItem.citations = data.citations || [];
+            assistantItem.meta = { requestId: data.requestId, finishReason: data.finishReason || 'stop', replayed: isReplay };
             lastCompletedReq = { conversationId: targetConv, clientRequestId, message };
             replayBtn.disabled = false;
           } else if (name === 'error') {
@@ -628,22 +508,20 @@
           }
           if (targetConv === currentConvId) renderChat();
         };
-
         while (true) {
           const { value, done } = await reader.read();
           if (done) break;
           buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
           const parts = buffer.split('\n\n');
           buffer = parts.pop();
-          parts.forEach(part => parseSseBlock(part, onEvent));
+          parts.forEach(p => parseSseBlock(p, onEvent));
         }
         if (buffer.trim()) parseSseBlock(buffer, onEvent);
         await refreshConversations(targetConv);
       } catch (e) {
         if (e.name === 'AbortError') {
-          assistantItem.meta = { ...(assistantItem.meta || {}), stopped: true, elapsedMs: Math.round(performance.now() - startedAt) };
+          assistantItem.meta = { ...(assistantItem.meta || {}), stopped: true };
           if (targetConv === currentConvId) renderChat();
-          showToast('已停止生成并同步释放后端会话锁', 'info');
         } else {
           assistantItem.error = { code: 'NETWORK', message: e.message };
           if (targetConv === currentConvId) renderChat();
@@ -654,60 +532,145 @@
       }
     }
 
+    async function refreshDocs() {
+      const tag = document.getElementById('filterTagInput').value.trim();
+      const url = tag ? `/api/documents?tag=${encodeURIComponent(tag)}` : '/api/documents';
+      const res = await fetch(url);
+      if (!res.ok) return;
+      const docs = await res.json();
+      docListEl.innerHTML = '';
+      if (!docs.length) {
+        docListEl.innerHTML = '<div class="status-text">暂无文档</div>';
+        return;
+      }
+      for (const d of docs) {
+        const card = document.createElement('div');
+        card.className = 'doc-item';
+        const top = document.createElement('div');
+        top.className = 'head-row';
+        top.innerHTML = `<strong style="font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${d.title} (v${d.activeVersion})</strong>`;
+        const btns = document.createElement('div');
+        const chunkBtn = document.createElement('button');
+        chunkBtn.className = 'icon-btn'; chunkBtn.textContent = '📄'; chunkBtn.title = '查看切片';
+        chunkBtn.onclick = async () => {
+          const cr = await fetch(`/api/documents/${d.id}/chunks`);
+          if (!cr.ok) return;
+          const rows = await cr.json();
+          showToast(`《${d.title}》v${d.activeVersion} 共 ${rows.length} 个切片（第1片长度 ${rows[0]?.content?.length || 0} 字）`, 'info');
+        };
+        const delBtn = document.createElement('button');
+        delBtn.className = 'icon-btn'; delBtn.textContent = '🗑️'; delBtn.title = '删除文档（级联删切片）';
+        delBtn.onclick = async () => {
+          if (!confirm(`确定删除文档《${d.title}》及其切片/向量/轨迹吗？`)) return;
+          const dr = await fetch(`/api/documents/${d.id}`, { method: 'DELETE' });
+          if (dr.ok) { showToast(`已级联删除《${d.title}》`, 'info'); refreshDocs(); }
+        };
+        btns.append(chunkBtn, delBtn);
+        top.appendChild(btns);
+        const meta = document.createElement('div');
+        meta.className = 'meta-row';
+        meta.textContent = `${(d.tags || []).join(', ') || '无标签'} ${d.docDate ? '· ' + d.docDate : ''}`;
+        card.append(top, meta);
+        docListEl.appendChild(card);
+      }
+    }
+
+    document.getElementById('docFile').onchange = async (e) => {
+      const f = e.target.files[0];
+      if (!f) return;
+      if (!document.getElementById('docTitle').value.trim()) {
+        document.getElementById('docTitle').value = f.name.replace(/\.md$/i, '');
+      }
+      document.getElementById('docContent').value = await f.text();
+    };
+
+    document.getElementById('uploadDocBtn').onclick = async () => {
+      const title = document.getElementById('docTitle').value.trim();
+      const content = document.getElementById('docContent').value;
+      const tags = parseTags(document.getElementById('docTags').value);
+      const docDate = document.getElementById('docDate').value || null;
+      const res = await fetch('/api/documents', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, content, tags, docDate })
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ code: res.status, message: res.statusText }));
+        showToast(`上传失败 [${err.code}]: ${err.message}`, 'err');
+        return;
+      }
+      const data = await res.json();
+      showToast(`已入库《${data.document.title}》v${data.document.activeVersion}（${data.chunkCount} 切片${data.embeddingDegraded ? ' · 仅关键词' : ''}）`, 'info');
+      refreshDocs();
+    };
+
+    document.getElementById('debugBtn').onclick = async () => {
+      const query = document.getElementById('debugQuery').value.trim();
+      if (!query) return;
+      const tags = parseTags(scopeTagsInput.value);
+      const res = await fetch('/api/retrieval/debug', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query, tags, topK: 5 })
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      debugResultEl.innerHTML = '';
+      if (data.degraded) {
+        const badge = document.createElement('div');
+        badge.className = 'tag warn'; badge.textContent = `⚠ 已降级关键词: ${data.degradedReason || ''}`;
+        debugResultEl.appendChild(badge);
+      }
+      if (!data.chunks.length) {
+        debugResultEl.innerHTML += '<div class="status-text">无匹配片段</div>';
+        return;
+      }
+      data.chunks.forEach((c, idx) => {
+        const hit = document.createElement('div');
+        hit.className = 'debug-hit';
+        hit.innerHTML = `<strong>[K${idx + 1}] ${c.docTitle}</strong> <span class="status-text">#${c.chunkId} score=${c.score.toFixed(4)} (v=${c.vectorScore.toFixed(2)}, k=${c.keywordScore.toFixed(2)})</span><div></div>`;
+        hit.querySelector('div').textContent = c.content.slice(0, 90) + (c.content.length > 90 ? '...' : '');
+        debugResultEl.appendChild(hit);
+      });
+    };
+
     function sendMessage() {
       const text = msgInput.value.trim();
       if (!text || (currentConvId && controllers[currentConvId])) return;
-      msgInput.value = '';
-      hideToast();
-      runChatRequest({
-        message: text,
-        conversationId: currentConvId,
-        clientRequestId: crypto.randomUUID()
-      });
+      msgInput.value = ''; hideToast();
+      runChatRequest({ message: text, conversationId: currentConvId, clientRequestId: crypto.randomUUID() });
     }
 
     newConvBtn.onclick = async () => {
-      const res = await fetch('/api/conversations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({})
-      });
+      const res = await fetch('/api/conversations', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
       if (res.ok) {
         const created = await res.json();
         localStorage.setItem('lore_last_conv', created.id);
         await refreshConversations(created.id);
       }
     };
-
     raceBtn.onclick = async () => {
-      if (!currentConvId) { showToast('请先选中或创建一个会话', 'info'); return; }
+      if (!currentConvId) { showToast('请先选中会话', 'info'); return; }
       const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: '并发插队测试', conversationId: currentConvId, clientRequestId: crypto.randomUUID() })
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: '并发插队', conversationId: currentConvId, clientRequestId: crypto.randomUUID() })
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({ code: res.status, message: res.statusText }));
-        showToast(`并发拦截成功 HTTP ${res.status} [${err.code}]: ${err.message}`, 'info');
-      } else {
-        await res.body?.cancel();
-        showToast('当前会话空闲，请求正常放行了；在回答生成中点击本按钮可触发 409', 'info');
-      }
+        showToast(`并发拦截 HTTP ${res.status} [${err.code}]`, 'info');
+      } else { await res.body?.cancel(); showToast('当前空闲未冲突；请在生成中点击', 'info'); }
     };
-
     replayBtn.onclick = () => {
       if (!lastCompletedReq || controllers[lastCompletedReq.conversationId]) return;
-      selectConversation(lastCompletedReq.conversationId).then(() => {
-        runChatRequest({ ...lastCompletedReq, isReplay: true });
-      });
+      selectConversation(lastCompletedReq.conversationId).then(() => runChatRequest({ ...lastCompletedReq, isReplay: true }));
     };
-
+    document.getElementById('refreshDocsBtn').onclick = refreshDocs;
+    document.getElementById('filterDocBtn').onclick = refreshDocs;
     sendBtn.onclick = sendMessage;
     stopBtn.onclick = () => currentConvId && controllers[currentConvId] && controllers[currentConvId].abort();
     msgInput.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } };
 
     checkHealth();
     refreshConversations(localStorage.getItem('lore_last_conv'));
+    refreshDocs();
   </script>
 </body>
 </html>

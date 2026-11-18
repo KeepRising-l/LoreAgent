@@ -44,7 +44,7 @@ class ConversationServiceTest {
                 new ChatMessage(0L, conv.id(), "local", 0, "tool", "5",
                         List.of(new ToolCall("c1", "calc", "")), null, null, null));
         service.persistTurnOutputs("local", conv.id(), "req_1", steps,
-                new AgentEvent.Done("req_1", "stop", "结果是5", null));
+                new AgentEvent.Done("req_1", "stop", "结果是5", null), null);
 
         // 已成功答复过的 user 消息不允许再带 retryMessageId 重试
         assertThatThrownBy(() -> service.startTurn(

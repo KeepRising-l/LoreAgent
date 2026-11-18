@@ -96,7 +96,7 @@ class PersistenceIntegrationIT {
 
     @BeforeEach
     void cleanDatabase() {
-        jdbc.execute("truncate table chat_message, conversation restart identity cascade");
+        jdbc.execute("truncate table run_trace, chunks, document, chat_message, conversation restart identity cascade");
         LLM_HITS.set(0);
         MODE.set("tool_calc");
     }

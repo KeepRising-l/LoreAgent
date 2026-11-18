@@ -74,12 +74,12 @@ public class ConversationService {
         Optional<ChatMessage> dbDone = messageRepo.findCompletedAssistantByRequestId(userId, clientRequestId);
         if (dbDone.isPresent()) {
             ChatMessage done = dbDone.get();
-            return TurnStart.replay(done.conversationId(), done.content(), clientRequestId);
+            return TurnStart.replay(done.conversationId(), done.content(), clientRequestId, done.citationsJson());
         }
         RunRegistry.AcquireResult acquired = runRegistry.acquire(convId.toString(), clientRequestId, cancellation);
         if (acquired.isReplay()) {
             AgentEvent.Done d = acquired.replayDone();
-            return TurnStart.replay(convId, d.fullContent(), d.requestId());
+            return TurnStart.replay(convId, d.fullContent(), d.requestId(), null);
         }
 
         try {
@@ -87,13 +87,14 @@ public class ConversationService {
                 Optional<ChatMessage> raced = messageRepo.findCompletedAssistantByRequestId(userId, clientRequestId);
                 if (raced.isPresent()) {
                     runRegistry.abort(convId.toString(), clientRequestId);
-                    return TurnStart.replay(raced.get().conversationId(), raced.get().content(), clientRequestId);
+                    return TurnStart.replay(
+                            raced.get().conversationId(), raced.get().content(), clientRequestId, raced.get().citationsJson());
                 }
                 Conversation conv = requireConversation(userId, convId);
                 ChatMessage userMsg = resolveOrAppendUserMessage(userId, conv, rawMessage, clientRequestId, retryMessageId);
                 List<Message> spiMessages = messageRepo.listRecent(userId, convId, HISTORY_LIMIT).stream()
                         .map(this::toSpiMessage).toList();
-                return new TurnStart(convId, userMsg.id(), spiMessages, null, null);
+                return new TurnStart(convId, userMsg.id(), userMsg.content(), spiMessages, null, null, null);
             });
         } catch (RuntimeException e) {
             runRegistry.abort(convId.toString(), clientRequestId);
@@ -104,12 +105,12 @@ public class ConversationService {
     // 整轮结束后把工具中间轮次（requestId=null）与最终助手回复（带 requestId）在同一个事务内落库
     public void persistTurnOutputs(
             String userId, UUID conversationId, String clientRequestId,
-            List<ChatMessage> intermediateSteps, AgentEvent.Done done) {
+            List<ChatMessage> intermediateSteps, AgentEvent.Done done, String citationsJson) {
         tx.executeWithoutResult(status -> {
             for (ChatMessage step : intermediateSteps) {
                 messageRepo.append(userId, conversationId, step.role(), step.content(), step.toolCalls(), null, null);
             }
-            messageRepo.append(userId, conversationId, "assistant", done.fullContent(), List.of(), null, clientRequestId);
+            messageRepo.append(userId, conversationId, "assistant", done.fullContent(), List.of(), citationsJson, clientRequestId);
             conversationRepo.touch(userId, conversationId);
         });
         runRegistry.complete(conversationId.toString(), clientRequestId, done);
@@ -188,10 +189,10 @@ public class ConversationService {
     }
 
     public record TurnStart(
-            UUID conversationId, long userMessageId, List<Message> history,
-            String replayContent, String replayRequestId) {
-        static TurnStart replay(UUID convId, String content, String requestId) {
-            return new TurnStart(convId, 0L, List.of(), content, requestId);
+            UUID conversationId, long userMessageId, String userQuery, List<Message> history,
+            String replayContent, String replayRequestId, String replayCitationsJson) {
+        static TurnStart replay(UUID convId, String content, String requestId, String citationsJson) {
+            return new TurnStart(convId, 0L, null, List.of(), content, requestId, citationsJson);
         }
         public boolean isReplay() { return replayContent != null; }
     }
