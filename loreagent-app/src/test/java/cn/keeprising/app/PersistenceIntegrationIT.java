@@ -68,10 +68,12 @@ class PersistenceIntegrationIT {
             try (OutputStream out = exchange.getResponseBody()) {
                 if ("empty".equals(MODE.get())) {
                     writeSse(out, "{\"choices\":[{\"delta\":{\"content\":\"  \"},\"finish_reason\":\"stop\"}]}");
-                } else if ("tool_calc".equals(MODE.get()) && !reqBody.contains("\"role\":\"tool\"")) {
+                } else if ("tool_calc".equals(MODE.get()) && !reqBody.contains("call_pg_1")) {
                     writeSse(out, "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_pg_1\",\"type\":\"function\",\"function\":{\"name\":\"calc\",\"arguments\":\"{\\\"expr\\\":\\\"2+3\\\"}\"}}]},\"finish_reason\":\"tool_calls\"}]}");
+                } else if ("tool_calc".equals(MODE.get()) && !reqBody.contains("call_pg_2")) {
+                    writeSse(out, "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_pg_2\",\"type\":\"function\",\"function\":{\"name\":\"calc\",\"arguments\":\"{\\\"expr\\\":\\\"5*2\\\"}\"}}]},\"finish_reason\":\"tool_calls\"}]}");
                 } else if ("tool_calc".equals(MODE.get())) {
-                    writeSse(out, "{\"choices\":[{\"delta\":{\"content\":\"2+3=5\"},\"finish_reason\":\"stop\"}]}");
+                    writeSse(out, "{\"choices\":[{\"delta\":{\"content\":\"(2+3)*2=10\"},\"finish_reason\":\"stop\"}]}");
                 } else {
                     writeSse(out, "{\"choices\":[{\"delta\":{\"content\":\"第二轮回复\"},\"finish_reason\":\"stop\"}]}");
                 }
@@ -101,41 +103,57 @@ class PersistenceIntegrationIT {
 
     @Test
     void shouldPersistMultiTurnToolConversationCascadeDeleteAndSurviveRestartIdempotency() throws Exception {
-        // 1. 新建会话并发送第 1 轮（含 CalcTool 调用）
+        // 1. 新建会话并发送第 1 轮（一轮内连续两步 CalcTool 调用）
         String convId = createConversation();
         HttpResponse<String> r1 = postChat(
-                "{\"message\":\"帮我算一下2+3是多少\",\"clientRequestId\":\"it_req_1\",\"conversationId\":\"" + convId + "\"}");
+                "{\"message\":\"帮我算一下(2+3)*2是多少\",\"clientRequestId\":\"it_req_1\",\"conversationId\":\"" + convId + "\"}");
         assertThat(r1.statusCode()).isEqualTo(200);
-        assertThat(r1.body()).contains("2+3=5").contains("event:done");
+        assertThat(r1.body()).contains("(2+3)*2=10").contains("event:done");
 
-        // 2. 发送第 2 轮普通对话，验证顺序与历史完整
+        // 2. 发送第 2 轮普通对话，验证两轮 8 条消息（含两步工具链）与 seq 顺序完整
         MODE.set("plain");
         HttpResponse<String> r2 = postChat(
                 "{\"message\":\"再说一句\",\"clientRequestId\":\"it_req_2\",\"conversationId\":\"" + convId + "\"}");
         assertThat(r2.statusCode()).isEqualTo(200);
 
         JsonNode history = MAPPER.readTree(get("/api/conversations/" + convId + "/messages").body());
-        assertThat(history.size()).isEqualTo(6);
+        assertThat(history.size()).isEqualTo(8);
         assertThat(history.get(0).get("seq").asInt()).isEqualTo(1);
         assertThat(history.get(1).get("toolCalls").get(0).get("name").asText()).isEqualTo("calc");
         assertThat(history.get(2).get("role").asText()).isEqualTo("tool");
-        assertThat(history.get(3).get("content").asText()).isEqualTo("2+3=5");
-        assertThat(history.get(5).get("seq").asInt()).isEqualTo(6);
+        assertThat(history.get(2).get("content").asText()).isEqualTo("5");
+        assertThat(history.get(3).get("toolCalls").get(0).get("id").asText()).isEqualTo("call_pg_2");
+        assertThat(history.get(4).get("role").asText()).isEqualTo("tool");
+        assertThat(history.get(4).get("content").asText()).isEqualTo("10");
+        assertThat(history.get(5).get("content").asText()).isEqualTo("(2+3)*2=10");
+        assertThat(history.get(7).get("seq").asInt()).isEqualTo(8);
 
         // 验证自动标题取前 20 字
         JsonNode list = MAPPER.readTree(get("/api/conversations").body());
-        assertThat(list.get(0).get("title").asText()).isEqualTo("帮我算一下2+3是多少");
+        assertThat(list.get(0).get("title").asText()).isEqualTo("帮我算一下(2+3)*2是多少");
 
         // 3. 模拟重启清空内存 RunRegistry 后，重复提交 it_req_1 仍走数据库回放，不再调模型
         int hitsBeforeReplay = LLM_HITS.get();
         runRegistry.abort(convId, "it_req_1"); // 确保内存态不可用，完全验证 PG 持久化幂等
         HttpResponse<String> replay = postChat(
-                "{\"message\":\"帮我算一下2+3是多少\",\"clientRequestId\":\"it_req_1\",\"conversationId\":\"" + convId + "\"}");
+                "{\"message\":\"帮我算一下(2+3)*2是多少\",\"clientRequestId\":\"it_req_1\",\"conversationId\":\"" + convId + "\"}");
         assertThat(replay.statusCode()).isEqualTo(200);
-        assertThat(replay.body()).contains("2+3=5").contains("event:done");
+        assertThat(replay.body()).contains("(2+3)*2=10").contains("event:done");
         assertThat(LLM_HITS.get()).isEqualTo(hitsBeforeReplay);
 
-        // 4. 验证多会话按 updated_at 倒序 + userId 隔离
+        // 4. 验证多会话列表按 updated_at 倒序、切换独立 + userId 隔离
+        String conv2Id = createConversation();
+        assertThat(postChat("{\"message\":\"第二个会话问题\",\"clientRequestId\":\"it_req_c2\",\"conversationId\":\"" + conv2Id + "\"}").statusCode()).isEqualTo(200);
+        JsonNode listAfterConv2 = MAPPER.readTree(get("/api/conversations").body());
+        assertThat(listAfterConv2.get(0).get("id").asText()).isEqualTo(conv2Id);
+        assertThat(listAfterConv2.get(1).get("id").asText()).isEqualTo(convId);
+
+        assertThat(postChat("{\"message\":\"回到第一个会话\",\"clientRequestId\":\"it_req_c1_3\",\"conversationId\":\"" + convId + "\"}").statusCode()).isEqualTo(200);
+        JsonNode listAfterBackToConv1 = MAPPER.readTree(get("/api/conversations").body());
+        assertThat(listAfterBackToConv1.get(0).get("id").asText()).isEqualTo(convId);
+        assertThat(listAfterBackToConv1.get(1).get("id").asText()).isEqualTo(conv2Id);
+        assertThat(MAPPER.readTree(get("/api/conversations/" + conv2Id + "/messages").body()).size()).isEqualTo(2);
+
         Conversation otherUserConv = conversationRepo.create("other_user", UUID.randomUUID(), "别人的会话");
         assertThat(conversationRepo.findById("local", otherUserConv.id())).isEmpty();
         assertThat(messageRepo.listByConversation("other_user", UUID.fromString(convId))).isEmpty();

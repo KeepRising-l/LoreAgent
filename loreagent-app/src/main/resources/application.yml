@@ -1,6 +1,12 @@
 spring:
   application:
     name: loreagent
+  # 本地密钥放 application-local.yml（已 gitignore），存在时自动加载，缺失也不报错。
+  # 同时兼容“从项目根目录运行”和“从模块目录运行”两种工作目录。
+  config:
+    import:
+      - optional:file:./application-local.yml
+      - optional:file:../application-local.yml
   datasource:
     url: ${LORE_DB_URL:jdbc:postgresql://localhost:5432/loreagent}
     username: ${LORE_DB_USER:postgres}
@@ -17,6 +23,7 @@ server:
 
 lore:
   model:
-    base-url: ${LORE_MODEL_BASE_URL:https://api.openai.com/v1}
+    base-url: ${LORE_MODEL_BASE_URL:https://magpie.rayagent.cloud/v1}
+    # 密钥绝不入库：本地通过环境变量或 application-local.yml 提供
     api-key: ${LORE_MODEL_API_KEY:}
-    name: ${LORE_MODEL_NAME:gpt-4o-mini}
+    name: ${LORE_MODEL_NAME:auto/deepseek-v4.1-flash}

@@ -95,6 +95,7 @@ class ChatControllerTest {
         SLOW_STARTED.set(new CountDownLatch(1));
         SLOW_RELEASE.set(new CountDownLatch(1));
         InMemoryTestRepos.FAIL_NEXT_MESSAGE_APPEND.set(false);
+        InMemoryTestRepos.FAIL_NEXT_ASSISTANT_APPEND.set(false);
     }
 
     @AfterAll
@@ -231,13 +232,20 @@ class ChatControllerTest {
     @Test
     void shouldReturnStorageErrorInsteadOfSilentDoneWhenPersistenceFails() throws Exception {
         String convId = createConversation();
-        // 先放过 user 消息落库，专门让助手终态落库失败
-        postChat("{\"message\":\"预热\",\"clientRequestId\":\"req_warm\",\"conversationId\":\"" + convId + "\"}");
+        // 1. user 消息落库失败时直接返回 HTTP 500 STORAGE_ERROR
         InMemoryTestRepos.FAIL_NEXT_MESSAGE_APPEND.set(true);
         HttpResponse<String> failOnUser = postChat(
                 "{\"message\":\"失败1\",\"clientRequestId\":\"req_fail_u\",\"conversationId\":\"" + convId + "\"}");
         assertThat(failOnUser.statusCode()).isEqualTo(500);
         assertThat(failOnUser.body()).contains("STORAGE_ERROR");
+
+        // 2. 流式输出完成后助手终态落库失败：不能只吐流发 event:done，必须发 event:error(STORAGE_ERROR)
+        InMemoryTestRepos.FAIL_NEXT_ASSISTANT_APPEND.set(true);
+        HttpResponse<String> failOnAssistant = postChat(
+                "{\"message\":\"失败2\",\"clientRequestId\":\"req_fail_a\",\"conversationId\":\"" + convId + "\"}");
+        assertThat(failOnAssistant.statusCode()).isEqualTo(200);
+        assertThat(failOnAssistant.body()).contains("event:delta").contains("event:error").contains("STORAGE_ERROR");
+        assertThat(failOnAssistant.body()).doesNotContain("event:done");
     }
 
     @Test

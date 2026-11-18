@@ -20,6 +20,7 @@ import java.util.concurrent.atomic.AtomicLong;
 public class InMemoryTestRepos {
 
     static final AtomicBoolean FAIL_NEXT_MESSAGE_APPEND = new AtomicBoolean(false);
+    static final AtomicBoolean FAIL_NEXT_ASSISTANT_APPEND = new AtomicBoolean(false);
 
     @Bean
     @Primary
@@ -95,6 +96,9 @@ public class InMemoryTestRepos {
                     List<ToolCall> toolCalls, String citationsJson, String requestId) {
                 if (FAIL_NEXT_MESSAGE_APPEND.getAndSet(false)) {
                     throw new Failure(Failure.ErrorCode.STORAGE_ERROR, "模拟落库失败");
+                }
+                if ("assistant".equals(role) && requestId != null && FAIL_NEXT_ASSISTANT_APPEND.getAndSet(false)) {
+                    throw new Failure(Failure.ErrorCode.STORAGE_ERROR, "模拟终态落库失败");
                 }
                 if ("assistant".equals(role) && requestId != null) {
                     boolean dup = store.messages.stream()
