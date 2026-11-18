@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>LoreAgent · Phase 1b 控制台</title>
+  <title>LoreAgent · Phase 1.5 会话持久化</title>
   <style>
     :root {
       --bg: #f4f6fb;
@@ -30,29 +30,91 @@
       display: flex;
       justify-content: center;
     }
-    .shell {
+    .layout {
       width: 100%;
-      max-width: 920px;
+      max-width: 1120px;
       height: 100vh;
+      display: grid;
+      grid-template-columns: 260px 1fr;
+      padding: 14px;
+      gap: 12px;
+    }
+    .sidebar {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 12px;
       display: flex;
       flex-direction: column;
-      padding: 16px;
-      gap: 12px;
+      gap: 10px;
+      overflow: hidden;
+    }
+    .sidebar-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .conv-list {
+      flex: 1;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .conv-item {
+      border: 1px solid transparent;
+      border-radius: 10px;
+      padding: 8px 10px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      background: #f8fafc;
+    }
+    .conv-item.active {
+      background: var(--accent-soft);
+      border-color: #c7d2fe;
+    }
+    .conv-title {
+      font-size: 13px;
+      font-weight: 500;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      flex: 1;
+    }
+    .conv-actions { display: flex; gap: 4px; opacity: 0.75; }
+    .icon-btn {
+      border: none;
+      background: transparent;
+      cursor: pointer;
+      font-size: 12px;
+      padding: 2px 4px;
+      border-radius: 4px;
+    }
+    .icon-btn:hover { background: rgba(15, 23, 42, 0.08); }
+    .main {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      min-width: 0;
+      height: calc(100vh - 28px);
     }
     .topbar {
       background: var(--card);
       border: 1px solid var(--border);
       border-radius: 14px;
-      padding: 12px 16px;
+      padding: 11px 16px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 12px;
-      box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+      gap: 10px;
       flex-wrap: wrap;
     }
     .brand { display: flex; align-items: center; gap: 10px; }
-    .brand-title { font-weight: 700; font-size: 16px; letter-spacing: -0.01em; }
+    .brand-title { font-weight: 700; font-size: 16px; }
     .pill {
       font-size: 12px;
       padding: 3px 9px;
@@ -61,52 +123,22 @@
       color: var(--accent);
       font-weight: 600;
     }
-    .health-pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 12px;
-      color: var(--muted);
-    }
+    .health-pill { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
     .dot { width: 8px; height: 8px; border-radius: 50%; background: #cbd5e1; }
     .dot.ok { background: var(--green); }
     .dot.bad { background: var(--red); }
-    .sessions { display: flex; align-items: center; gap: 6px; }
-    .sessions-label { font-size: 12px; color: var(--muted); }
-    .seg-btn {
-      border: 1px solid var(--border);
-      background: #fff;
-      color: var(--muted);
-      padding: 5px 11px;
-      border-radius: 8px;
-      font-size: 12px;
-      cursor: pointer;
-      font-weight: 500;
-      transition: all 0.15s;
-    }
-    .seg-btn.active {
-      background: var(--accent);
-      border-color: var(--accent);
-      color: #fff;
-    }
     .chat-box {
       flex: 1;
       background: var(--card);
       border: 1px solid var(--border);
       border-radius: 14px;
-      padding: 18px;
+      padding: 16px;
       overflow-y: auto;
       display: flex;
       flex-direction: column;
-      gap: 14px;
-      box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+      gap: 12px;
     }
-    .empty {
-      margin: auto;
-      text-align: center;
-      max-width: 500px;
-      color: var(--muted);
-    }
+    .empty { margin: auto; text-align: center; max-width: 480px; color: var(--muted); }
     .empty h3 { margin: 0 0 6px; color: var(--text); font-size: 16px; }
     .empty p { margin: 0 0 14px; font-size: 13px; line-height: 1.6; }
     .quick-row { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
@@ -118,31 +150,21 @@
       border-radius: 999px;
       font-size: 13px;
       cursor: pointer;
-      transition: border-color 0.15s, background 0.15s;
     }
     .quick-btn:hover { border-color: var(--accent); background: var(--accent-soft); }
     .msg { display: flex; flex-direction: column; max-width: 82%; gap: 6px; }
     .msg.user { align-self: flex-end; align-items: flex-end; }
     .msg.assistant { align-self: flex-start; align-items: flex-start; width: 82%; }
     .bubble {
-      padding: 11px 14px;
+      padding: 10px 14px;
       border-radius: 12px;
       font-size: 14px;
       line-height: 1.65;
       white-space: pre-wrap;
       word-break: break-word;
     }
-    .msg.user .bubble {
-      background: var(--accent);
-      color: #fff;
-      border-bottom-right-radius: 4px;
-    }
-    .msg.assistant .bubble {
-      background: #f8fafc;
-      border: 1px solid var(--border);
-      border-bottom-left-radius: 4px;
-      width: 100%;
-    }
+    .msg.user .bubble { background: var(--accent); color: #fff; border-bottom-right-radius: 4px; }
+    .msg.assistant .bubble { background: #f8fafc; border: 1px solid var(--border); border-bottom-left-radius: 4px; width: 100%; }
     .tools-wrap { display: flex; flex-direction: column; gap: 6px; width: 100%; }
     .tool-card {
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -150,9 +172,7 @@
       padding: 7px 10px;
       border-radius: 8px;
       border: 1px solid var(--border);
-      background: #fff;
       display: flex;
-      align-items: center;
       justify-content: space-between;
       gap: 8px;
       flex-wrap: wrap;
@@ -160,22 +180,9 @@
     .tool-card.running { border-color: #c7d2fe; background: var(--accent-soft); color: var(--accent); }
     .tool-card.ok { border-color: #a7f3d0; background: var(--green-soft); color: var(--green); }
     .tool-card.err { border-color: #fecaca; background: var(--red-soft); color: var(--red); }
-    .meta-row {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      flex-wrap: wrap;
-      font-size: 11px;
-      color: var(--muted);
-    }
-    .tag {
-      padding: 2px 7px;
-      border-radius: 6px;
-      background: #f1f5f9;
-      color: #475569;
-    }
+    .meta-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 11px; color: var(--muted); }
+    .tag { padding: 2px 7px; border-radius: 6px; background: #f1f5f9; color: #475569; }
     .tag.warn { background: var(--amber-soft); color: var(--amber); font-weight: 600; }
-    .tag.err { background: var(--red-soft); color: var(--red); font-weight: 600; }
     .tag.ok { background: var(--green-soft); color: var(--green); font-weight: 600; }
     .toast {
       display: none;
@@ -199,15 +206,8 @@
       display: flex;
       flex-direction: column;
       gap: 10px;
-      box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
     }
-    .debug-bar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
+    .debug-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
     .debug-actions { display: flex; gap: 6px; flex-wrap: wrap; }
     .mini-btn {
       border: 1px solid var(--border);
@@ -225,7 +225,7 @@
     textarea {
       flex: 1;
       resize: none;
-      height: 54px;
+      height: 52px;
       border: 1px solid var(--border);
       border-radius: 10px;
       padding: 10px 12px;
@@ -234,77 +234,75 @@
       outline: none;
     }
     textarea:focus { border-color: var(--accent); }
-    .btn {
-      border: none;
-      border-radius: 10px;
-      padding: 0 18px;
-      height: 44px;
-      font-size: 14px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: opacity 0.15s;
-    }
+    .btn { border: none; border-radius: 10px; padding: 0 18px; height: 44px; font-size: 14px; font-weight: 600; cursor: pointer; }
     .btn:disabled { opacity: 0.45; cursor: not-allowed; }
     .btn-primary { background: var(--accent); color: #fff; }
     .btn-stop { background: var(--red-soft); color: var(--red); border: 1px solid #fecaca; }
   </style>
 </head>
 <body>
-  <div class="shell">
-    <header class="topbar">
-      <div class="brand">
-        <span class="brand-title">LoreAgent</span>
-        <span class="pill">Phase 1b · 工具与控制内核</span>
-        <span class="health-pill"><span id="healthDot" class="dot"></span><span id="healthText">检查中</span></span>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-head">
+        <strong>会话列表（PG 持久化）</strong>
+        <button id="newConvBtn" class="mini-btn">+ 新建</button>
       </div>
-      <div class="sessions">
-        <span class="sessions-label">会话槽位:</span>
-        <button class="seg-btn active" data-conv="conv-1">conv-1</button>
-        <button class="seg-btn" data-conv="conv-2">conv-2</button>
-      </div>
-    </header>
+      <div id="convList" class="conv-list"></div>
+    </aside>
 
-    <div id="toast" class="toast">
-      <span id="toastText"></span>
-      <button class="mini-btn" onclick="hideToast()">关闭</button>
-    </div>
-
-    <main id="chatBox" class="chat-box"></main>
-
-    <section class="composer">
-      <div class="debug-bar">
-        <div class="debug-actions">
-          <button id="raceBtn" class="mini-btn" title="在当前会话同时再发一条请求，验证 409 SESSION_BUSY">⚡ 同会话插队 (测 409)</button>
-          <button id="replayBtn" class="mini-btn" disabled title="使用上一次已完成的 clientRequestId 复发，验证 SSE 幂等回放">🔁 复发上次 RequestId (测幂等)</button>
-          <button id="clearBtn" class="mini-btn">🧹 清空当前窗口</button>
+    <div class="main">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-title">LoreAgent</span>
+          <span class="pill">Phase 1.5 · 会话持久化</span>
+          <span class="health-pill"><span id="healthDot" class="dot"></span><span id="healthText">检查中</span></span>
         </div>
-        <span id="statusText" class="status-text">空闲</span>
+        <span id="convIdBadge" class="status-text">未选会话</span>
+      </header>
+
+      <div id="toast" class="toast">
+        <span id="toastText"></span>
+        <button class="mini-btn" onclick="hideToast()">关闭</button>
       </div>
-      <div class="input-row">
-        <textarea id="msgInput" placeholder="输入问题（Enter 发送，Shift+Enter 换行）..."></textarea>
-        <button id="sendBtn" class="btn btn-primary">发送</button>
-        <button id="stopBtn" class="btn btn-stop" disabled>停止</button>
-      </div>
-    </section>
+
+      <main id="chatBox" class="chat-box"></main>
+
+      <section class="composer">
+        <div class="debug-bar">
+          <div class="debug-actions">
+            <button id="raceBtn" class="mini-btn">⚡ 同会话插队 (测 409)</button>
+            <button id="replayBtn" class="mini-btn" disabled>🔁 复发上次 RequestId (测幂等)</button>
+          </div>
+          <span id="statusText" class="status-text">空闲</span>
+        </div>
+        <div class="input-row">
+          <textarea id="msgInput" placeholder="输入问题（Enter 发送，Shift+Enter 换行）..."></textarea>
+          <button id="sendBtn" class="btn btn-primary">发送</button>
+          <button id="stopBtn" class="btn btn-stop" disabled>停止</button>
+        </div>
+      </section>
+    </div>
   </div>
 
   <script>
+    const convListEl = document.getElementById('convList');
     const chatBox = document.getElementById('chatBox');
     const msgInput = document.getElementById('msgInput');
     const sendBtn = document.getElementById('sendBtn');
     const stopBtn = document.getElementById('stopBtn');
+    const newConvBtn = document.getElementById('newConvBtn');
     const raceBtn = document.getElementById('raceBtn');
     const replayBtn = document.getElementById('replayBtn');
-    const clearBtn = document.getElementById('clearBtn');
     const statusText = document.getElementById('statusText');
+    const convIdBadge = document.getElementById('convIdBadge');
     const toastEl = document.getElementById('toast');
     const toastText = document.getElementById('toastText');
 
-    // Phase 1b 尚未接入数据库持久化，仅在浏览器内存里按会话槽位保存展示消息与各自的 AbortController
-    const sessions = { 'conv-1': [], 'conv-2': [] };
-    const controllers = { 'conv-1': null, 'conv-2': null };
-    let currentConv = 'conv-1';
-    let lastCompletedReq = null; // { conversationId, clientRequestId, message }
+    let conversations = [];
+    let currentConvId = null;
+    const messagesByConv = {};
+    const controllers = {};
+    let lastCompletedReq = null;
 
     function showToast(msg, type = 'info') {
       toastText.textContent = msg;
@@ -326,22 +324,149 @@
       }
     }
 
-    function syncComposerState(statusHint) {
-      const busy = Boolean(controllers[currentConv]);
+    function syncComposerState(hint) {
+      const busy = Boolean(currentConvId && controllers[currentConvId]);
       sendBtn.disabled = busy;
       stopBtn.disabled = !busy;
-      statusText.textContent = statusHint || (busy ? `${currentConv} 生成中...` : '空闲');
+      statusText.textContent = hint || (busy ? '生成中...' : '空闲');
+      convIdBadge.textContent = currentConvId ? `会话: ${currentConvId.slice(0, 8)}` : '未选会话（发送自动新建）';
+    }
+
+    function renderSidebar() {
+      convListEl.innerHTML = '';
+      if (!conversations.length) {
+        const p = document.createElement('div');
+        p.className = 'status-text';
+        p.style.padding = '8px';
+        p.textContent = '暂无会话，点击新建或直接发送消息';
+        convListEl.appendChild(p);
+        return;
+      }
+      for (const c of conversations) {
+        const item = document.createElement('div');
+        item.className = `conv-item ${c.id === currentConvId ? 'active' : ''}`;
+        const title = document.createElement('span');
+        title.className = 'conv-title';
+        title.textContent = c.title;
+        title.onclick = () => selectConversation(c.id);
+
+        const actions = document.createElement('div');
+        actions.className = 'conv-actions';
+        const renameBtn = document.createElement('button');
+        renameBtn.className = 'icon-btn';
+        renameBtn.textContent = '✏️';
+        renameBtn.title = '重命名';
+        renameBtn.onclick = async (e) => {
+          e.stopPropagation();
+          const next = prompt('输入新标题', c.title);
+          if (!next || !next.trim()) return;
+          const res = await fetch(`/api/conversations/${c.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title: next.trim() })
+          });
+          if (res.ok) await refreshConversations(c.id);
+        };
+        const delBtn = document.createElement('button');
+        delBtn.className = 'icon-btn';
+        delBtn.textContent = '🗑️';
+        delBtn.title = '删除会话';
+        delBtn.onclick = async (e) => {
+          e.stopPropagation();
+          if (!confirm(`确定删除会话“${c.title}”及其所有消息吗？`)) return;
+          const res = await fetch(`/api/conversations/${c.id}`, { method: 'DELETE' });
+          if (res.ok) {
+            delete messagesByConv[c.id];
+            if (currentConvId === c.id) currentConvId = null;
+            await refreshConversations(currentConvId);
+          }
+        };
+        actions.append(renameBtn, delBtn);
+        item.append(title, actions);
+        convListEl.appendChild(item);
+      }
+    }
+
+    // 把数据库返回的 ChatMessage 列表折叠成便于界面渲染的消息卡片（合并工具调用步骤到助手卡片）
+    function toUiItems(dbMessages) {
+      const items = [];
+      let pendingTools = [];
+      for (const m of dbMessages) {
+        if (m.role === 'user') {
+          pendingTools = [];
+          items.push({ id: m.id, role: 'user', text: m.content });
+        } else if (m.role === 'assistant' && m.toolCalls && m.toolCalls.length) {
+          for (const tc of m.toolCalls) {
+            pendingTools.push({ id: tc.id, name: tc.name, arguments: tc.argumentsJson, status: 'running' });
+          }
+        } else if (m.role === 'tool') {
+          const callId = m.toolCalls && m.toolCalls[0] ? m.toolCalls[0].id : null;
+          const target = pendingTools.find(t => t.id === callId);
+          if (target) {
+            target.status = 'done';
+            target.success = true;
+            target.output = m.content;
+          }
+        } else if (m.role === 'assistant') {
+          items.push({
+            role: 'assistant',
+            text: m.content,
+            tools: pendingTools,
+            meta: m.requestId ? { requestId: m.requestId } : null
+          });
+          pendingTools = [];
+        }
+      }
+      return items;
+    }
+
+    async function refreshConversations(preferId) {
+      const res = await fetch('/api/conversations');
+      if (!res.ok) return;
+      conversations = await res.json();
+      if (preferId && conversations.some(c => c.id === preferId)) {
+        currentConvId = preferId;
+      } else if (!currentConvId && conversations.length) {
+        currentConvId = conversations[0].id;
+      }
+      renderSidebar();
+      syncComposerState();
+      if (currentConvId && !controllers[currentConvId]) {
+        await loadHistory(currentConvId);
+      } else {
+        renderChat();
+      }
+    }
+
+    async function selectConversation(id) {
+      currentConvId = id;
+      localStorage.setItem('lore_last_conv', id);
+      renderSidebar();
+      syncComposerState();
+      if (!controllers[id]) {
+        await loadHistory(id);
+      } else {
+        renderChat();
+      }
+    }
+
+    async function loadHistory(id) {
+      const res = await fetch(`/api/conversations/${id}/messages`);
+      if (!res.ok) return;
+      const rows = await res.json();
+      messagesByConv[id] = toUiItems(rows);
+      renderChat();
     }
 
     function renderChat() {
-      const list = sessions[currentConv];
+      const list = (currentConvId && messagesByConv[currentConvId]) || [];
       chatBox.innerHTML = '';
       if (!list.length) {
         const empty = document.createElement('div');
         empty.className = 'empty';
         empty.innerHTML = `
-          <h3>Phase 1b 可验证能力</h3>
-          <p>支持流式输出、<code>calc</code> 工具调用与回填、<code>AbortController</code> 中断、同会话并发 409 拒绝与 <code>clientRequestId</code> 幂等回放。</p>
+          <h3>Phase 1.5 会话与消息持久化</h3>
+          <p>刷新页面不丢历史、支持新建/重命名/删除级联，以及已完成 <code>requestId</code> 的持久化幂等回放。</p>
           <div class="quick-row">
             <button class="quick-btn" data-q="请帮我算一下 (12 + 8) * 3 等于多少？">🧮 帮我算 (12 + 8) * 3</button>
             <button class="quick-btn" data-q="请用两句话通俗解释什么是 RAG？">💬 两句话解释 RAG</button>
@@ -362,11 +487,10 @@
           toolsWrap.className = 'tools-wrap';
           for (const t of item.tools) {
             const tc = document.createElement('div');
-            const stateCls = t.status === 'running' ? 'running' : (t.success ? 'ok' : 'err');
-            tc.className = `tool-card ${stateCls}`;
+            tc.className = `tool-card ${t.status === 'running' ? 'running' : (t.success ? 'ok' : 'err')}`;
             const left = document.createElement('span');
             left.textContent = t.status === 'running'
-              ? `⚙️ 正在执行 ${t.name}(${t.arguments || ''})`
+              ? `⚙️ 执行中 ${t.name}(${t.arguments || ''})`
               : `${t.success ? '✅' : '❌'} ${t.name}(${t.arguments || ''}) → ${t.output ?? ''}`;
             const right = document.createElement('span');
             right.textContent = t.status === 'running' ? '运行中...' : '已完成';
@@ -376,15 +500,13 @@
           wrap.appendChild(toolsWrap);
         }
 
-        if (item.text || item.role === 'user' || item.error) {
-          const bubble = document.createElement('div');
-          bubble.className = 'bubble';
-          bubble.textContent = item.error ? `[${item.error.code}] ${item.error.message}` : (item.text || '...');
-          if (item.error) bubble.style.color = 'var(--red)';
-          wrap.appendChild(bubble);
-        }
+        const bubble = document.createElement('div');
+        bubble.className = 'bubble';
+        bubble.textContent = item.error ? `[${item.error.code}] ${item.error.message}` : (item.text || '...');
+        if (item.error) bubble.style.color = 'var(--red)';
+        wrap.appendChild(bubble);
 
-        if (item.meta) {
+        if (item.meta || (item.error && item.retryMessageId)) {
           const metaRow = document.createElement('div');
           metaRow.className = 'meta-row';
           const addTag = (txt, cls = '') => {
@@ -393,14 +515,24 @@
             s.textContent = txt;
             metaRow.appendChild(s);
           };
-          if (item.meta.replayed) addTag('⚡ 幂等回放命中', 'ok');
-          if (item.meta.stopped) addTag('⏹ 已取消', 'warn');
-          if (item.meta.finishReason) {
-            addTag(`finish: ${item.meta.finishReason}`, item.meta.finishReason === 'length' ? 'warn' : '');
+          if (item.meta?.replayed) addTag('⚡ 持久化幂等回放', 'ok');
+          if (item.meta?.stopped) addTag('⏹ 已取消', 'warn');
+          if (item.meta?.finishReason) addTag(`finish: ${item.meta.finishReason}`, item.meta.finishReason === 'length' ? 'warn' : '');
+          if (item.meta?.tokens != null) addTag(`tokens: ${item.meta.tokens}`);
+          if (item.meta?.elapsedMs != null) addTag(`${item.meta.elapsedMs}ms`);
+          if (item.meta?.requestId) addTag(`req: ${item.meta.requestId.slice(0, 8)}`);
+          if (item.error && item.retryMessageId) {
+            const retryBtn = document.createElement('button');
+            retryBtn.className = 'mini-btn';
+            retryBtn.textContent = '🔄 重试（不重插 user 消息）';
+            retryBtn.onclick = () => runChatRequest({
+              message: '',
+              conversationId: currentConvId,
+              clientRequestId: crypto.randomUUID(),
+              retryMessageId: item.retryMessageId
+            });
+            metaRow.appendChild(retryBtn);
           }
-          if (item.meta.tokens != null) addTag(`tokens: ${item.meta.tokens}`);
-          if (item.meta.elapsedMs != null) addTag(`${item.meta.elapsedMs}ms`);
-          if (item.meta.requestId) addTag(`req: ${item.meta.requestId.slice(0, 8)}`);
           wrap.appendChild(metaRow);
         }
         chatBox.appendChild(wrap);
@@ -417,35 +549,54 @@
         else if (line.startsWith('data:')) dataLines.push(line.slice(5).replace(/^ /, ''));
       }
       if (!dataLines.length) return;
-      const payload = JSON.parse(dataLines.join('\n'));
-      handlers(eventName, payload);
+      handlers(eventName, JSON.parse(dataLines.join('\n')));
     }
 
-    async function runChatRequest({ message, conversationId, clientRequestId, isReplay = false }) {
-      const assistantItem = { role: 'assistant', text: '', tools: [], meta: null, error: null };
-      sessions[conversationId].push({ role: 'user', text: isReplay ? `[复发幂等请求] ${message}` : message });
-      sessions[conversationId].push(assistantItem);
-      if (conversationId === currentConv) renderChat();
+    async function runChatRequest({ message, conversationId, clientRequestId, retryMessageId = null, isReplay = false }) {
+      let targetConv = conversationId;
+      if (!targetConv) {
+        const res = await fetch('/api/conversations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({})
+        });
+        if (!res.ok) {
+          showToast('自动创建会话失败', 'err');
+          return;
+        }
+        const created = await res.json();
+        targetConv = created.id;
+        currentConvId = targetConv;
+        localStorage.setItem('lore_last_conv', targetConv);
+        messagesByConv[targetConv] = [];
+        await refreshConversations(targetConv);
+      }
+
+      messagesByConv[targetConv] = messagesByConv[targetConv] || [];
+      if (!retryMessageId) {
+        messagesByConv[targetConv].push({ role: 'user', text: isReplay ? `[复发幂等请求] ${message}` : message });
+      }
+      const assistantItem = { role: 'assistant', text: '', tools: [], meta: null, error: null, retryMessageId };
+      messagesByConv[targetConv].push(assistantItem);
+      if (targetConv === currentConvId) renderChat();
 
       const startedAt = performance.now();
       const controller = new AbortController();
-      controllers[conversationId] = controller;
-      if (conversationId === currentConv) {
-        syncComposerState(isReplay ? '验证幂等回放中...' : '模型生成中...');
-      }
+      controllers[targetConv] = controller;
+      if (targetConv === currentConvId) syncComposerState(isReplay ? '验证幂等回放中...' : '模型生成中...');
 
       try {
         const res = await fetch('/api/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message, conversationId, clientRequestId }),
+          body: JSON.stringify({ message, conversationId: targetConv, clientRequestId, retryMessageId }),
           signal: controller.signal
         });
 
         if (!res.ok) {
           const err = await res.json().catch(() => ({ code: String(res.status), message: res.statusText }));
           assistantItem.error = err;
-          if (conversationId === currentConv) renderChat();
+          if (targetConv === currentConvId) renderChat();
           showToast(`请求被拒绝 HTTP ${res.status} [${err.code}]: ${err.message}`, 'err');
           return;
         }
@@ -453,23 +604,14 @@
         const reader = res.body.getReader();
         const decoder = new TextDecoder('utf-8');
         let buffer = '';
-
         const onEvent = (name, data) => {
           if (name === 'delta') {
             assistantItem.text += data.text || '';
           } else if (name === 'tool_started') {
-            statusText.textContent = `执行工具 ${data.toolName}...`;
-            assistantItem.tools.push({
-              id: data.toolCallId, name: data.toolName, arguments: data.arguments || '', status: 'running'
-            });
+            assistantItem.tools.push({ id: data.toolCallId, name: data.toolName, arguments: data.arguments || '', status: 'running' });
           } else if (name === 'tool_finished') {
-            const target = assistantItem.tools.find(t => t.id === data.toolCallId);
-            if (target) {
-              target.status = 'done';
-              target.success = data.success;
-              target.output = data.output;
-            }
-            statusText.textContent = '工具完成，模型继续生成...';
+            const t = assistantItem.tools.find(x => x.id === data.toolCallId);
+            if (t) { t.status = 'done'; t.success = data.success; t.output = data.output; }
           } else if (name === 'done') {
             assistantItem.meta = {
               requestId: data.requestId,
@@ -478,12 +620,13 @@
               elapsedMs: Math.round(performance.now() - startedAt),
               replayed: isReplay
             };
-            lastCompletedReq = { conversationId, clientRequestId, message };
+            lastCompletedReq = { conversationId: targetConv, clientRequestId, message };
             replayBtn.disabled = false;
           } else if (name === 'error') {
             assistantItem.error = { code: data.code, message: data.message };
+            assistantItem.retryMessageId = data.userMessageId || assistantItem.retryMessageId;
           }
-          if (conversationId === currentConv) renderChat();
+          if (targetConv === currentConvId) renderChat();
         };
 
         while (true) {
@@ -495,94 +638,76 @@
           parts.forEach(part => parseSseBlock(part, onEvent));
         }
         if (buffer.trim()) parseSseBlock(buffer, onEvent);
+        await refreshConversations(targetConv);
       } catch (e) {
         if (e.name === 'AbortError') {
-          assistantItem.meta = {
-            ...(assistantItem.meta || {}),
-            stopped: true,
-            elapsedMs: Math.round(performance.now() - startedAt)
-          };
-          if (conversationId === currentConv) renderChat();
-          showToast('已主动中断流式生成（后端 Cancellation 同步取消）', 'info');
+          assistantItem.meta = { ...(assistantItem.meta || {}), stopped: true, elapsedMs: Math.round(performance.now() - startedAt) };
+          if (targetConv === currentConvId) renderChat();
+          showToast('已停止生成并同步释放后端会话锁', 'info');
         } else {
           assistantItem.error = { code: 'NETWORK', message: e.message };
-          if (conversationId === currentConv) renderChat();
+          if (targetConv === currentConvId) renderChat();
         }
       } finally {
-        controllers[conversationId] = null;
-        if (conversationId === currentConv) syncComposerState();
+        controllers[targetConv] = null;
+        if (targetConv === currentConvId) syncComposerState();
       }
     }
 
     function sendMessage() {
       const text = msgInput.value.trim();
-      if (!text || controllers[currentConv]) return;
+      if (!text || (currentConvId && controllers[currentConvId])) return;
       msgInput.value = '';
       hideToast();
       runChatRequest({
         message: text,
-        conversationId: currentConv,
+        conversationId: currentConvId,
         clientRequestId: crypto.randomUUID()
       });
     }
 
-    // 故意在当前会话插队发一条独立 fetch，验证后端 409 SESSION_BUSY 而不影响主请求
+    newConvBtn.onclick = async () => {
+      const res = await fetch('/api/conversations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+      });
+      if (res.ok) {
+        const created = await res.json();
+        localStorage.setItem('lore_last_conv', created.id);
+        await refreshConversations(created.id);
+      }
+    };
+
     raceBtn.onclick = async () => {
-      try {
-        const res = await fetch('/api/chat', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            message: '并发插队测试请求',
-            conversationId: currentConv,
-            clientRequestId: crypto.randomUUID()
-          })
-        });
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({ code: res.status, message: res.statusText }));
-          showToast(`并发拦截成功 HTTP ${res.status} [${err.code}]: ${err.message}`, 'info');
-        } else {
-          // 如果当前恰好没有进行中的请求，则提示先发一条慢问题再点插队
-          await res.body?.cancel();
-          showToast('当前会话空闲，请求正常放行了；请先发一条回答，在“生成中”时点击本按钮即可触发 409', 'info');
-        }
-      } catch (e) {
-        showToast(`插队测试异常: ${e.message}`, 'err');
+      if (!currentConvId) { showToast('请先选中或创建一个会话', 'info'); return; }
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: '并发插队测试', conversationId: currentConvId, clientRequestId: crypto.randomUUID() })
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ code: res.status, message: res.statusText }));
+        showToast(`并发拦截成功 HTTP ${res.status} [${err.code}]: ${err.message}`, 'info');
+      } else {
+        await res.body?.cancel();
+        showToast('当前会话空闲，请求正常放行了；在回答生成中点击本按钮可触发 409', 'info');
       }
     };
 
     replayBtn.onclick = () => {
       if (!lastCompletedReq || controllers[lastCompletedReq.conversationId]) return;
-      currentConv = lastCompletedReq.conversationId;
-      document.querySelectorAll('.seg-btn').forEach(b => b.classList.toggle('active', b.dataset.conv === currentConv));
-      runChatRequest({ ...lastCompletedReq, isReplay: true });
+      selectConversation(lastCompletedReq.conversationId).then(() => {
+        runChatRequest({ ...lastCompletedReq, isReplay: true });
+      });
     };
-
-    clearBtn.onclick = () => {
-      sessions[currentConv] = [];
-      renderChat();
-    };
-
-    document.querySelectorAll('.seg-btn').forEach(btn => {
-      btn.onclick = () => {
-        currentConv = btn.dataset.conv;
-        document.querySelectorAll('.seg-btn').forEach(b => b.classList.toggle('active', b === btn));
-        syncComposerState();
-        renderChat();
-      };
-    });
 
     sendBtn.onclick = sendMessage;
-    stopBtn.onclick = () => controllers[currentConv] && controllers[currentConv].abort();
-    msgInput.onkeydown = (e) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        sendMessage();
-      }
-    };
+    stopBtn.onclick = () => currentConvId && controllers[currentConvId] && controllers[currentConvId].abort();
+    msgInput.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } };
 
     checkHealth();
-    renderChat();
+    refreshConversations(localStorage.getItem('lore_last_conv'));
   </script>
 </body>
 </html>

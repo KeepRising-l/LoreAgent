@@ -40,6 +40,7 @@ public class Failure extends RuntimeException {
     public enum ErrorCode {
         INVALID_ARGUMENT(400, false),      // 参数错/空消息（重发多少遍还是错，不重试）
         CONTEXT_OVERFLOW(400, false),      // 对话太长超上下文了
+        NOT_FOUND(404, false),             // 会话/消息等业务资源不存在
         MODEL_NOT_FOUND(404, false),       // 找不到这个模型名
         SESSION_BUSY(409, false),          // 同一个会话上一条还没说完，拒绝并发插队
         BUDGET_EXCEEDED(429, false),       // 步数/时间/token 预算用光了
@@ -48,6 +49,7 @@ public class Failure extends RuntimeException {
         MODEL_UNAVAILABLE(502, true),      // 模型接口挂了或 500 抖动（吐字前可重试）
         TIMEOUT(504, true),                // 等模型超时了（吐字前可重试）
         TOOL_EXECUTION_FAILED(500, false), // 本地工具运行出错
+        STORAGE_ERROR(500, false),         // 数据库读写失败（禁止只吐流不落库静默成功）
         INTERNAL_ERROR(500, false);        // 其他内部异常兜底
 
         private final int httpStatus;

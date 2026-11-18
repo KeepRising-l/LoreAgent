@@ -22,3 +22,37 @@ jobs:
 
       - name: Run unit tests
         run: mvn -B test
+
+  integration-test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: loreagent_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci_pg_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Run integration tests
+        env:
+          LORE_DB_URL: jdbc:postgresql://localhost:5432/loreagent_test
+          LORE_DB_USER: postgres
+          LORE_DB_PASSWORD: ci_pg_password
+        run: mvn -B verify -Pit

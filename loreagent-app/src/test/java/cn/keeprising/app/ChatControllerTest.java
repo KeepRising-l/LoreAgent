@@ -1,11 +1,15 @@
 package cn.keeprising.app;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.context.annotation.Import;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
@@ -25,8 +29,11 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@ActiveProfiles("test")
+@Import(InMemoryTestRepos.class)
 class ChatControllerTest {
 
+    private static final ObjectMapper MAPPER = new ObjectMapper();
     private static HttpServer fakeLlmServer;
     private static ExecutorService fakeLlmPool;
     private static final AtomicReference<String> MODE = new AtomicReference<>("ok");
@@ -87,6 +94,7 @@ class ChatControllerTest {
         LLM_HITS.set(0);
         SLOW_STARTED.set(new CountDownLatch(1));
         SLOW_RELEASE.set(new CountDownLatch(1));
+        InMemoryTestRepos.FAIL_NEXT_MESSAGE_APPEND.set(false);
     }
 
     @AfterAll
@@ -100,58 +108,70 @@ class ChatControllerTest {
     }
 
     @Test
-    void shouldStreamDeltaAndDoneEventsOverSse() throws Exception {
+    void shouldStreamDeltaAndDoneEventsAndPersistMessages() throws Exception {
+        String convId = createConversation();
         HttpResponse<String> response = postChat(
-                "{\"message\":\"打个招呼\",\"clientRequestId\":\"req_chat_1\",\"conversationId\":\"c_stream\"}");
+                "{\"message\":\"打个招呼\",\"clientRequestId\":\"req_chat_1\",\"conversationId\":\"" + convId + "\"}");
 
         assertThat(response.statusCode()).isEqualTo(200);
-        assertThat(response.headers().firstValue("Content-Type")).isPresent();
-        assertThat(response.headers().firstValue("Content-Type").get()).startsWith("text/event-stream");
+        assertThat(response.headers().firstValue("Content-Type").orElse("")).startsWith("text/event-stream");
         assertThat(response.body())
                 .contains("event:delta").contains("{\"text\":\"你\"}").contains("{\"text\":\"好\"}")
                 .contains("event:done").contains("\"requestId\":\"req_chat_1\"");
+
+        HttpResponse<String> history = get("/api/conversations/" + convId + "/messages");
+        assertThat(history.statusCode()).isEqualTo(200);
+        JsonNode arr = MAPPER.readTree(history.body());
+        assertThat(arr.size()).isEqualTo(2);
+        assertThat(arr.get(0).get("role").asText()).isEqualTo("user");
+        assertThat(arr.get(1).get("content").asText()).isEqualTo("你好");
     }
 
     @Test
-    void shouldInvokeCalcToolAndFeedResultBackToModel() throws Exception {
+    void shouldInvokeCalcToolPersistStepsAndFeedResultBackToModel() throws Exception {
+        String convId = createConversation();
         MODE.set("tool_calc");
         HttpResponse<String> response = postChat(
-                "{\"message\":\"帮我算2+3\",\"clientRequestId\":\"req_calc_1\",\"conversationId\":\"c_calc\"}");
+                "{\"message\":\"帮我算2+3\",\"clientRequestId\":\"req_calc_1\",\"conversationId\":\"" + convId + "\"}");
 
         assertThat(response.statusCode()).isEqualTo(200);
         assertThat(response.body())
                 .contains("event:tool_started").contains("calc")
                 .contains("event:tool_finished").contains("\"output\":\"5\"")
-                .contains("计算结果是5")
-                .contains("event:done");
+                .contains("计算结果是5").contains("event:done");
         assertThat(LLM_HITS.get()).isEqualTo(2);
+
+        JsonNode arr = MAPPER.readTree(get("/api/conversations/" + convId + "/messages").body());
+        assertThat(arr.size()).isEqualTo(4); // user, assistant(tool_calls), tool, assistant
+        assertThat(arr.get(1).get("requestId").isNull()).isTrue();
+        assertThat(arr.get(2).get("role").asText()).isEqualTo("tool");
+        assertThat(arr.get(3).get("requestId").asText()).isEqualTo("req_calc_1");
     }
 
     @Test
     void shouldRejectConcurrentSameConversationWith409AndAllowDifferentConversation() throws Exception {
+        String convBusy = createConversation();
+        String convParallel = createConversation();
         MODE.set("slow");
         ExecutorService pool = Executors.newFixedThreadPool(2);
         try {
             Future<HttpResponse<String>> first = pool.submit(() -> postChat(
-                    "{\"message\":\"第一条\",\"clientRequestId\":\"req_busy_1\",\"conversationId\":\"c_busy\"}"));
+                    "{\"message\":\"第一条\",\"clientRequestId\":\"req_busy_1\",\"conversationId\":\"" + convBusy + "\"}"));
             assertThat(SLOW_STARTED.get().await(3, TimeUnit.SECONDS)).isTrue();
 
-            // 同一个会话并发第二条消息，必须直接返回 409 SESSION_BUSY
             HttpResponse<String> duplicateConv = postChat(
-                    "{\"message\":\"插队\",\"clientRequestId\":\"req_busy_2\",\"conversationId\":\"c_busy\"}");
+                    "{\"message\":\"插队\",\"clientRequestId\":\"req_busy_2\",\"conversationId\":\"" + convBusy + "\"}");
             assertThat(duplicateConv.statusCode()).isEqualTo(409);
             assertThat(duplicateConv.body()).contains("SESSION_BUSY");
 
-            // 相同 clientRequestId 在进行中重复提交，也返回 409 SESSION_BUSY
             HttpResponse<String> duplicateReq = postChat(
-                    "{\"message\":\"重复\",\"clientRequestId\":\"req_busy_1\",\"conversationId\":\"c_other_conv\"}");
+                    "{\"message\":\"重复\",\"clientRequestId\":\"req_busy_1\",\"conversationId\":\"" + convParallel + "\"}");
             assertThat(duplicateReq.statusCode()).isEqualTo(409);
             assertThat(duplicateReq.body()).contains("SESSION_BUSY");
 
-            // 不同会话可以正常并发执行，互不阻塞
             MODE.set("ok");
             HttpResponse<String> otherConv = postChat(
-                    "{\"message\":\"其他会话\",\"clientRequestId\":\"req_other_ok\",\"conversationId\":\"c_parallel\"}");
+                    "{\"message\":\"其他会话\",\"clientRequestId\":\"req_other_ok\",\"conversationId\":\"" + convParallel + "\"}");
             assertThat(otherConv.statusCode()).isEqualTo(200);
             assertThat(otherConv.body()).contains("{\"text\":\"你\"}").contains("{\"text\":\"好\"}");
 
@@ -165,41 +185,39 @@ class ChatControllerTest {
 
     @Test
     void shouldReplayCompletedClientRequestIdWithoutReExecutingLlm() throws Exception {
-        String body = "{\"message\":\"打个招呼\",\"clientRequestId\":\"req_idemp_1\",\"conversationId\":\"c_idemp\"}";
-        HttpResponse<String> first = postChat(body);
-        assertThat(first.statusCode()).isEqualTo(200);
+        String convId = createConversation();
+        String body = "{\"message\":\"打个招呼\",\"clientRequestId\":\"req_idemp_1\",\"conversationId\":\"" + convId + "\"}";
+        assertThat(postChat(body).statusCode()).isEqualTo(200);
         assertThat(LLM_HITS.get()).isEqualTo(1);
 
-        // 相同 clientRequestId 再次提交：SSE 回放终态，模型调用次数保持 1 不增加
         HttpResponse<String> second = postChat(body);
         assertThat(second.statusCode()).isEqualTo(200);
-        assertThat(second.headers().firstValue("Content-Type").get()).startsWith("text/event-stream");
+        assertThat(second.headers().firstValue("Content-Type").orElse("")).startsWith("text/event-stream");
         assertThat(second.body()).contains("event:delta").contains("你好").contains("event:done");
         assertThat(LLM_HITS.get()).isEqualTo(1);
     }
 
     @Test
-    void shouldCancelWhenClientDisconnectsMidStream() throws Exception {
+    void shouldCancelWhenClientDisconnectsMidStreamAndAllowNewMessage() throws Exception {
+        String convId = createConversation();
         MODE.set("slow");
         HttpClient client = HttpClient.newHttpClient();
         HttpRequest req = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/api/chat"))
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(
-                        "{\"message\":\"慢请求\",\"clientRequestId\":\"req_abort_1\",\"conversationId\":\"c_abort\"}",
+                        "{\"message\":\"慢请求\",\"clientRequestId\":\"req_abort_1\",\"conversationId\":\"" + convId + "\"}",
                         StandardCharsets.UTF_8))
                 .build();
 
         HttpResponse<InputStream> streamResp = client.send(req, HttpResponse.BodyHandlers.ofInputStream());
         assertThat(SLOW_STARTED.get().await(3, TimeUnit.SECONDS)).isTrue();
-        // 模拟浏览器停止 / Ctrl-C 关闭响应流
         streamResp.body().close();
         SLOW_RELEASE.get().countDown();
 
-        // 取消后会话锁应迅速释放，同一会话能立即发下一条新消息
         MODE.set("ok");
         HttpResponse<String> next = null;
         for (int i = 0; i < 20; i++) {
-            next = postChat("{\"message\":\"恢复\",\"clientRequestId\":\"req_abort_2\",\"conversationId\":\"c_abort\"}");
+            next = postChat("{\"message\":\"恢复\",\"clientRequestId\":\"req_abort_2\",\"conversationId\":\"" + convId + "\"}");
             if (next.statusCode() == 200) {
                 break;
             }
@@ -211,30 +229,73 @@ class ChatControllerTest {
     }
 
     @Test
+    void shouldReturnStorageErrorInsteadOfSilentDoneWhenPersistenceFails() throws Exception {
+        String convId = createConversation();
+        // 先放过 user 消息落库，专门让助手终态落库失败
+        postChat("{\"message\":\"预热\",\"clientRequestId\":\"req_warm\",\"conversationId\":\"" + convId + "\"}");
+        InMemoryTestRepos.FAIL_NEXT_MESSAGE_APPEND.set(true);
+        HttpResponse<String> failOnUser = postChat(
+                "{\"message\":\"失败1\",\"clientRequestId\":\"req_fail_u\",\"conversationId\":\"" + convId + "\"}");
+        assertThat(failOnUser.statusCode()).isEqualTo(500);
+        assertThat(failOnUser.body()).contains("STORAGE_ERROR");
+    }
+
+    @Test
     void shouldReturn400JsonWhenMessageIsBlank() throws Exception {
         HttpResponse<String> response = postChat("{\"message\":\"   \"}");
-
         assertThat(response.statusCode()).isEqualTo(400);
         assertThat(response.body()).contains("INVALID_ARGUMENT");
     }
 
     @Test
-    void shouldEmitErrorEventWhenModelReturnsEmptyText() throws Exception {
+    void shouldEmitErrorEventWhenModelReturnsEmptyTextAndSupportRetryWithoutDuplicateUser() throws Exception {
+        String convId = createConversation();
         MODE.set("empty");
-        HttpResponse<String> response = postChat("{\"message\":\"hi\",\"conversationId\":\"c_empty\"}");
+        HttpResponse<String> failed = postChat(
+                "{\"message\":\"hi\",\"clientRequestId\":\"req_empty_1\",\"conversationId\":\"" + convId + "\"}");
 
-        assertThat(response.statusCode()).isEqualTo(200);
-        assertThat(response.body()).contains("event:error").contains("MODEL_EMPTY_RESPONSE");
+        assertThat(failed.statusCode()).isEqualTo(200);
+        assertThat(failed.body()).contains("event:error").contains("MODEL_EMPTY_RESPONSE");
+
+        JsonNode afterFail = MAPPER.readTree(get("/api/conversations/" + convId + "/messages").body());
+        assertThat(afterFail.size()).isEqualTo(1);
+        long userMsgId = afterFail.get(0).get("id").asLong();
+
+        MODE.set("ok");
+        HttpResponse<String> retried = postChat("{\"message\":\"\",\"clientRequestId\":\"req_retry_ok\",\"conversationId\":\""
+                + convId + "\",\"retryMessageId\":" + userMsgId + "}");
+        assertThat(retried.statusCode()).isEqualTo(200);
+        assertThat(retried.body()).contains("event:done");
+
+        JsonNode afterRetry = MAPPER.readTree(get("/api/conversations/" + convId + "/messages").body());
+        assertThat(afterRetry.size()).isEqualTo(2);
     }
 
     @Test
-    void shouldServeTemporaryDebugPageAtRoot() throws Exception {
+    void shouldServeStageAdaptedPageAtRoot() throws Exception {
         HttpClient client = HttpClient.newHttpClient();
         HttpRequest req = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/")).GET().build();
         HttpResponse<String> response = client.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
 
         assertThat(response.statusCode()).isEqualTo(200);
-        assertThat(response.body()).contains("LoreAgent").contains("Phase 1b");
+        assertThat(response.body()).contains("LoreAgent").contains("Phase 1.5");
+    }
+
+    private String createConversation() throws Exception {
+        HttpClient client = HttpClient.newHttpClient();
+        HttpRequest req = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/api/conversations"))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString("{}", StandardCharsets.UTF_8))
+                .build();
+        HttpResponse<String> resp = client.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        assertThat(resp.statusCode()).isEqualTo(201);
+        return MAPPER.readTree(resp.body()).get("id").asText();
+    }
+
+    private HttpResponse<String> get(String path) throws Exception {
+        HttpClient client = HttpClient.newHttpClient();
+        HttpRequest req = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + path)).GET().build();
+        return client.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
     }
 
     private static void writeSse(OutputStream out, String json) throws IOException {
