@@ -15,7 +15,15 @@
 - PostgreSQL 16 + pgvector（Phase 1.5 起需要，可用本地安装或 `docker compose up -d`）
 - RabbitMQ（仅 Phase 7 异步入库需要，`docker compose --profile mq up -d`）
 
-## 快速运行（Phase 0）
+## 快速运行（Phase 1a：流式对话）
+
+先配置模型环境变量（密钥不入库）：
+
+```bash
+export LORE_MODEL_BASE_URL="https://your-openai-compatible-endpoint/v1"
+export LORE_MODEL_API_KEY="sk-..."
+export LORE_MODEL_NAME="your-model-name"
+```
 
 ```bash
 # 运行单元测试
@@ -27,4 +35,6 @@ java -jar loreagent-app/target/loreagent-app-0.1.0-SNAPSHOT.jar
 
 # 验证健康检查
 curl http://localhost:8080/health
+
+# 用浏览器打开 http://localhost:8080/ 即可使用临时调试页（SSE 流式吐字 / 停止生成）
 ```

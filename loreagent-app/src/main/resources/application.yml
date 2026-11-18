@@ -6,3 +6,10 @@ server:
   port: 8080
   # 开启优雅停机，避免正在输出的流式响应或落库事务被强行截断
   shutdown: graceful
+
+lore:
+  model:
+    base-url: ${LORE_MODEL_BASE_URL:https://magpie.rayagent.cloud/v1}
+    # 密钥绝不入库：本地通过环境变量或 application-local.yml 提供
+    api-key: ${LORE_MODEL_API_KEY:}
+    name: ${LORE_MODEL_NAME:auto/deepseek-v4.1-flash}
