@@ -1,8 +1,6 @@
 package cn.keeprising.app;
 
-import cn.keeprising.core.AgentLoop;
-import cn.keeprising.core.Failure;
-import cn.keeprising.core.TraceContext;
+import cn.keeprising.core.*;
 import cn.keeprising.spi.AgentEvent;
 import cn.keeprising.spi.Message;
 import org.slf4j.Logger;
@@ -16,19 +14,12 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.*;
+import java.util.concurrent.*;
 
 /**
  * 对话流式 HTTP 入口（门口接待员）：接住浏览器发来的 POST /api/chat，
- * 把内核 AgentLoop 推出来的 AgentEvent 转成浏览器能一条条收到的 SSE 流，并负责监听取消/停止。
+ * 负责同会话并发互斥与幂等回放（RunRegistry）、把 AgentEvent 转成 SSE 流，以及断连取消传播。
  */
 @RestController
 public class ChatController {
@@ -39,71 +30,82 @@ public class ChatController {
     private static final long HEARTBEAT_INTERVAL_SEC = 5L;
 
     private final AgentLoop agentLoop;
+    private final RunRegistry runRegistry;
     private final ExecutorService chatExecutor;
     private final ScheduledExecutorService heartbeatExecutor;
 
     public ChatController(
             AgentLoop agentLoop,
+            RunRegistry runRegistry,
             ExecutorService chatExecutor,
             ScheduledExecutorService sseHeartbeatExecutor) {
         this.agentLoop = agentLoop;
+        this.runRegistry = runRegistry;
         this.chatExecutor = chatExecutor;
         this.heartbeatExecutor = sseHeartbeatExecutor;
     }
 
     @PostMapping(path = "/api/chat", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter chat(@RequestBody(required = false) ChatRequest request) {
-        // 1. 先拦空消息：直接抛 Failure，由下面的 handleFailure 转成 400 JSON 返回
         if (request == null || request.message() == null || request.message().isBlank()) {
             throw new Failure(Failure.ErrorCode.INVALID_ARGUMENT, "message 不能为空");
         }
-        // 2. 确定本次请求的工单号（前端没传就现场生成一个 UUID）
-        String requestId = (request.clientRequestId() == null || request.clientRequestId().isBlank())
-                ? UUID.randomUUID().toString()
+        String conversationId = (request.conversationId() == null || request.conversationId().isBlank())
+                ? "default"
+                : request.conversationId();
+        String clientRequestId = (request.clientRequestId() == null || request.clientRequestId().isBlank())
+                ? null
                 : request.clientRequestId();
-        TraceContext trace = new TraceContext(requestId, "");
+        String traceId = clientRequestId != null ? clientRequestId : UUID.randomUUID().toString();
+        TraceContext trace = new TraceContext(traceId, conversationId);
 
-        // 3. 创建长连接通道 SseEmitter，并准备取消开关和发送锁（SseEmitter 不是线程安全的，心跳和吐字不能同时写）
+        Cancellation cancellation = new Cancellation();
+        // 1. 抢占会话锁与幂等键：同会话正在跑或重复进行中直接抛 409 SESSION_BUSY；已完成则直接回放
+        RunRegistry.AcquireResult acquired = runRegistry.acquire(conversationId, clientRequestId, cancellation);
+        if (acquired.isReplay()) {
+            return replayDoneStream(acquired.replayDone());
+        }
+
         SseEmitter emitter = new SseEmitter(SSE_TIMEOUT_MS);
-        AtomicBoolean cancelled = new AtomicBoolean(false);
         Object sendLock = new Object();
+        emitter.onCompletion(cancellation::cancel);
+        emitter.onTimeout(cancellation::cancel);
+        emitter.onError(ex -> cancellation.cancel());
 
-        // 连接正常结束、超时或出错时，都把取消开关拉成 true，通知底层停下来
-        emitter.onCompletion(() -> cancelled.set(true));
-        emitter.onTimeout(() -> cancelled.set(true));
-        emitter.onError(ex -> cancelled.set(true));
-
-        // 4. 等待首字期间 Tomcat 不会主动发现客户端断开，靠每 5 秒发一次空注释心跳探测写失败，第一时间拉起取消开关
+        // 2. 等待首字或慢工具期间靠每 5 秒心跳探测写失败，客户端 Ctrl-C 后第一时间拉起取消
         ScheduledFuture<?> heartbeat = heartbeatExecutor.scheduleAtFixedRate(
-                () -> sendCommentSafe(emitter, sendLock, cancelled),
-                HEARTBEAT_INTERVAL_SEC,
-                HEARTBEAT_INTERVAL_SEC,
-                TimeUnit.SECONDS);
+                () -> sendCommentSafe(emitter, sendLock, cancellation),
+                HEARTBEAT_INTERVAL_SEC, HEARTBEAT_INTERVAL_SEC, TimeUnit.SECONDS);
 
-        // 5. 把真正耗时的模型调用丢进后台线程池，HTTP 线程立刻把 emitter 返回给浏览器
-        chatExecutor.submit(() -> {
+        Future<?> taskFuture = chatExecutor.submit(() -> {
             try {
                 log.info("{} event=chat_start model={}", trace.logPrefix(), request.model());
-                agentLoop.run(
+                AgentEvent.Done done = agentLoop.run(
                         trace,
                         request.model(),
                         List.of(Message.user(request.message())),
-                        event -> sendEventSafe(emitter, sendLock, cancelled, event),
-                        cancelled::get);
+                        new RunBudget(),
+                        cancellation,
+                        event -> sendEventSafe(emitter, sendLock, cancellation, event));
+                runRegistry.complete(conversationId, clientRequestId, done);
                 completeSafe(emitter, sendLock);
             } catch (Failure failure) {
+                runRegistry.abort(conversationId, clientRequestId);
                 log.warn("{} event=chat_failed code={}", trace.logPrefix(), failure.code());
                 completeSafe(emitter, sendLock);
+            } catch (RuntimeException e) {
+                runRegistry.abort(conversationId, clientRequestId);
+                log.warn("{} event=chat_error message={}", trace.logPrefix(), e.getMessage());
+                completeSafe(emitter, sendLock);
             } finally {
-                // 不管成功还是失败，结束时一定要关掉定时心跳，防止一直空转
                 heartbeat.cancel(false);
             }
         });
-
+        // 3. 把后台任务中断钩子挂进 Cancellation，确保取消信号直接打断阻塞中的 HTTP/工具线程
+        cancellation.onCancel(() -> taskFuture.cancel(true));
         return emitter;
     }
 
-    // 还没开始推流时（如空消息 400）抛出的 Failure，直接转成标准 JSON 错误响应
     @ExceptionHandler(Failure.class)
     public ResponseEntity<Map<String, Object>> handleFailure(Failure failure) {
         return ResponseEntity.status(failure.httpStatus())
@@ -111,19 +113,40 @@ public class ChatController {
                 .body(Map.of("code", failure.code().name(), "message", failure.getMessage()));
     }
 
-    // 加锁安全地把 AgentEvent 写进 SSE 流；如果写入时发现客户端已经断开，立刻把 cancelled 设为 true
+    // 幂等回放：已完成请求不再重跑模型，直接按 SSE 流吐出完整回答与 done 事件
+    private SseEmitter replayDoneStream(AgentEvent.Done done) {
+        SseEmitter emitter = new SseEmitter(SSE_TIMEOUT_MS);
+        Object lock = new Object();
+        Cancellation noop = new Cancellation();
+        chatExecutor.submit(() -> {
+            sendEventSafe(emitter, lock, noop, new AgentEvent.Delta(done.requestId(), done.fullContent()));
+            sendEventSafe(emitter, lock, noop, done);
+            completeSafe(emitter, lock);
+        });
+        return emitter;
+    }
+
     private void sendEventSafe(
-            SseEmitter emitter, Object sendLock, AtomicBoolean cancelled, AgentEvent event) {
-        if (cancelled.get()) {
+            SseEmitter emitter, Object sendLock, Cancellation cancellation, AgentEvent event) {
+        if (cancellation.isCancelled()) {
             return;
         }
         synchronized (sendLock) {
-            if (cancelled.get()) {
+            if (cancellation.isCancelled()) {
                 return;
             }
             try {
                 if (event instanceof AgentEvent.Delta d) {
                     emitter.send(SseEmitter.event().name("delta").data(Map.of("text", d.text())));
+                } else if (event instanceof AgentEvent.ToolStarted ts) {
+                    emitter.send(SseEmitter.event().name("tool_started")
+                            .data(Map.of("toolCallId", ts.toolCallId(),
+                                    "toolName", ts.toolName(),
+                                    "arguments", ts.argumentsJson())));
+                } else if (event instanceof AgentEvent.ToolFinished tf) {
+                    emitter.send(SseEmitter.event().name("tool_finished")
+                            .data(Map.of("toolCallId", tf.toolCallId(), "toolName", tf.toolName(),
+                                    "success", tf.success(), "output", tf.outputPreview())));
                 } else if (event instanceof AgentEvent.Done dn) {
                     Map<String, Object> payload = new LinkedHashMap<>();
                     payload.put("requestId", dn.requestId());
@@ -135,29 +158,27 @@ public class ChatController {
                             .data(Map.of("code", err.code(), "message", err.message())));
                 }
             } catch (IOException | IllegalStateException e) {
-                cancelled.set(true);
+                cancellation.cancel();
             }
         }
     }
 
-    // 发一条前端会自动忽略的 ": ping" SSE 注释心跳，专门用来探测浏览器是不是已经点停止断开了
-    private void sendCommentSafe(SseEmitter emitter, Object sendLock, AtomicBoolean cancelled) {
-        if (cancelled.get()) {
+    private void sendCommentSafe(SseEmitter emitter, Object sendLock, Cancellation cancellation) {
+        if (cancellation.isCancelled()) {
             return;
         }
         synchronized (sendLock) {
-            if (cancelled.get()) {
+            if (cancellation.isCancelled()) {
                 return;
             }
             try {
                 emitter.send(SseEmitter.event().comment("ping"));
             } catch (IOException | IllegalStateException e) {
-                cancelled.set(true);
+                cancellation.cancel();
             }
         }
     }
 
-    // 安全关闭 SSE 流（防重复 complete 抛 IllegalStateException）
     private void completeSafe(SseEmitter emitter, Object sendLock) {
         synchronized (sendLock) {
             try {
@@ -167,7 +188,6 @@ public class ChatController {
         }
     }
 
-    // 前端 POST /api/chat 传进来的请求体
-    public record ChatRequest(String message, String model, String clientRequestId) {
+    public record ChatRequest(String message, String model, String clientRequestId, String conversationId) {
     }
 }

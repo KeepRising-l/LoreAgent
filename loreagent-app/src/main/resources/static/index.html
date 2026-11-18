@@ -2,39 +2,413 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
-  <title>LoreAgent 临时调试页</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LoreAgent · Phase 1b 控制台</title>
   <style>
-    body { font-family: system-ui, sans-serif; max-width: 720px; margin: 32px auto; padding: 0 16px; }
-    textarea { width: 100%; height: 80px; box-sizing: border-box; padding: 8px; }
-    .row { display: flex; gap: 8px; align-items: center; margin: 8px 0 16px; }
-    pre { white-space: pre-wrap; word-break: break-word; background: #f6f8fa; padding: 12px; min-height: 160px; border-radius: 6px; }
-    #status { color: #555; font-size: 13px; margin-left: auto; }
+    :root {
+      --bg: #f4f6fb;
+      --card: #ffffff;
+      --border: #e4e7ef;
+      --text: #181c28;
+      --muted: #64748b;
+      --accent: #4f46e5;
+      --accent-soft: #eef2ff;
+      --green: #059669;
+      --green-soft: #ecfdf5;
+      --amber: #d97706;
+      --amber-soft: #fffbeb;
+      --red: #dc2626;
+      --red-soft: #fef2f2;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      display: flex;
+      justify-content: center;
+    }
+    .shell {
+      width: 100%;
+      max-width: 920px;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      padding: 16px;
+      gap: 12px;
+    }
+    .topbar {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 12px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+      flex-wrap: wrap;
+    }
+    .brand { display: flex; align-items: center; gap: 10px; }
+    .brand-title { font-weight: 700; font-size: 16px; letter-spacing: -0.01em; }
+    .pill {
+      font-size: 12px;
+      padding: 3px 9px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-weight: 600;
+    }
+    .health-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #cbd5e1; }
+    .dot.ok { background: var(--green); }
+    .dot.bad { background: var(--red); }
+    .sessions { display: flex; align-items: center; gap: 6px; }
+    .sessions-label { font-size: 12px; color: var(--muted); }
+    .seg-btn {
+      border: 1px solid var(--border);
+      background: #fff;
+      color: var(--muted);
+      padding: 5px 11px;
+      border-radius: 8px;
+      font-size: 12px;
+      cursor: pointer;
+      font-weight: 500;
+      transition: all 0.15s;
+    }
+    .seg-btn.active {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+    .chat-box {
+      flex: 1;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 18px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+    }
+    .empty {
+      margin: auto;
+      text-align: center;
+      max-width: 500px;
+      color: var(--muted);
+    }
+    .empty h3 { margin: 0 0 6px; color: var(--text); font-size: 16px; }
+    .empty p { margin: 0 0 14px; font-size: 13px; line-height: 1.6; }
+    .quick-row { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+    .quick-btn {
+      border: 1px solid var(--border);
+      background: #fafbff;
+      color: var(--text);
+      padding: 7px 12px;
+      border-radius: 999px;
+      font-size: 13px;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .quick-btn:hover { border-color: var(--accent); background: var(--accent-soft); }
+    .msg { display: flex; flex-direction: column; max-width: 82%; gap: 6px; }
+    .msg.user { align-self: flex-end; align-items: flex-end; }
+    .msg.assistant { align-self: flex-start; align-items: flex-start; width: 82%; }
+    .bubble {
+      padding: 11px 14px;
+      border-radius: 12px;
+      font-size: 14px;
+      line-height: 1.65;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .msg.user .bubble {
+      background: var(--accent);
+      color: #fff;
+      border-bottom-right-radius: 4px;
+    }
+    .msg.assistant .bubble {
+      background: #f8fafc;
+      border: 1px solid var(--border);
+      border-bottom-left-radius: 4px;
+      width: 100%;
+    }
+    .tools-wrap { display: flex; flex-direction: column; gap: 6px; width: 100%; }
+    .tool-card {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+      padding: 7px 10px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .tool-card.running { border-color: #c7d2fe; background: var(--accent-soft); color: var(--accent); }
+    .tool-card.ok { border-color: #a7f3d0; background: var(--green-soft); color: var(--green); }
+    .tool-card.err { border-color: #fecaca; background: var(--red-soft); color: var(--red); }
+    .meta-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .tag {
+      padding: 2px 7px;
+      border-radius: 6px;
+      background: #f1f5f9;
+      color: #475569;
+    }
+    .tag.warn { background: var(--amber-soft); color: var(--amber); font-weight: 600; }
+    .tag.err { background: var(--red-soft); color: var(--red); font-weight: 600; }
+    .tag.ok { background: var(--green-soft); color: var(--green); font-weight: 600; }
+    .toast {
+      display: none;
+      padding: 9px 13px;
+      border-radius: 10px;
+      font-size: 13px;
+      border: 1px solid var(--border);
+      background: var(--card);
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .toast.show { display: flex; }
+    .toast.err { background: var(--red-soft); border-color: #fecaca; color: var(--red); }
+    .toast.info { background: var(--accent-soft); border-color: #c7d2fe; color: var(--accent); }
+    .composer {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+    }
+    .debug-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .debug-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+    .mini-btn {
+      border: 1px solid var(--border);
+      background: #f8fafc;
+      color: var(--text);
+      font-size: 12px;
+      padding: 4px 10px;
+      border-radius: 7px;
+      cursor: pointer;
+    }
+    .mini-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+    .mini-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+    .status-text { font-size: 12px; color: var(--muted); }
+    .input-row { display: flex; gap: 8px; align-items: flex-end; }
+    textarea {
+      flex: 1;
+      resize: none;
+      height: 54px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 12px;
+      font: inherit;
+      font-size: 14px;
+      outline: none;
+    }
+    textarea:focus { border-color: var(--accent); }
+    .btn {
+      border: none;
+      border-radius: 10px;
+      padding: 0 18px;
+      height: 44px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-stop { background: var(--red-soft); color: var(--red); border: 1px solid #fecaca; }
   </style>
 </head>
 <body>
-  <h2>LoreAgent 临时调试页（Phase 1a）</h2>
-  <textarea id="msg" placeholder="输入问题，按 Ctrl+Enter 或点击发送..."></textarea>
-  <div class="row">
-    <button id="send">发送</button>
-    <button id="stop" disabled>停止</button>
-    <span id="status">空闲</span>
+  <div class="shell">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-title">LoreAgent</span>
+        <span class="pill">Phase 1b · 工具与控制内核</span>
+        <span class="health-pill"><span id="healthDot" class="dot"></span><span id="healthText">检查中</span></span>
+      </div>
+      <div class="sessions">
+        <span class="sessions-label">会话槽位:</span>
+        <button class="seg-btn active" data-conv="conv-1">conv-1</button>
+        <button class="seg-btn" data-conv="conv-2">conv-2</button>
+      </div>
+    </header>
+
+    <div id="toast" class="toast">
+      <span id="toastText"></span>
+      <button class="mini-btn" onclick="hideToast()">关闭</button>
+    </div>
+
+    <main id="chatBox" class="chat-box"></main>
+
+    <section class="composer">
+      <div class="debug-bar">
+        <div class="debug-actions">
+          <button id="raceBtn" class="mini-btn" title="在当前会话同时再发一条请求，验证 409 SESSION_BUSY">⚡ 同会话插队 (测 409)</button>
+          <button id="replayBtn" class="mini-btn" disabled title="使用上一次已完成的 clientRequestId 复发，验证 SSE 幂等回放">🔁 复发上次 RequestId (测幂等)</button>
+          <button id="clearBtn" class="mini-btn">🧹 清空当前窗口</button>
+        </div>
+        <span id="statusText" class="status-text">空闲</span>
+      </div>
+      <div class="input-row">
+        <textarea id="msgInput" placeholder="输入问题（Enter 发送，Shift+Enter 换行）..."></textarea>
+        <button id="sendBtn" class="btn btn-primary">发送</button>
+        <button id="stopBtn" class="btn btn-stop" disabled>停止</button>
+      </div>
+    </section>
   </div>
-  <pre id="out"></pre>
 
   <script>
-    const msgEl = document.getElementById('msg');
-    const outEl = document.getElementById('out');
-    const sendBtn = document.getElementById('send');
-    const stopBtn = document.getElementById('stop');
-    const statusEl = document.getElementById('status');
-    let controller = null;
+    const chatBox = document.getElementById('chatBox');
+    const msgInput = document.getElementById('msgInput');
+    const sendBtn = document.getElementById('sendBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    const raceBtn = document.getElementById('raceBtn');
+    const replayBtn = document.getElementById('replayBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const statusText = document.getElementById('statusText');
+    const toastEl = document.getElementById('toast');
+    const toastText = document.getElementById('toastText');
 
-    function setBusy(busy) {
-      sendBtn.disabled = busy;
-      stopBtn.disabled = !busy;
+    // Phase 1b 尚未接入数据库持久化，仅在浏览器内存里按会话槽位保存展示消息与各自的 AbortController
+    const sessions = { 'conv-1': [], 'conv-2': [] };
+    const controllers = { 'conv-1': null, 'conv-2': null };
+    let currentConv = 'conv-1';
+    let lastCompletedReq = null; // { conversationId, clientRequestId, message }
+
+    function showToast(msg, type = 'info') {
+      toastText.textContent = msg;
+      toastEl.className = `toast show ${type}`;
+    }
+    function hideToast() { toastEl.className = 'toast'; }
+
+    async function checkHealth() {
+      const dot = document.getElementById('healthDot');
+      const txt = document.getElementById('healthText');
+      try {
+        const res = await fetch('/health');
+        const body = await res.text();
+        dot.className = res.ok && body.trim() === 'ok' ? 'dot ok' : 'dot bad';
+        txt.textContent = res.ok ? '服务在线' : '异常';
+      } catch {
+        dot.className = 'dot bad';
+        txt.textContent = '离线';
+      }
     }
 
-    function handleSseBlock(block) {
+    function syncComposerState(statusHint) {
+      const busy = Boolean(controllers[currentConv]);
+      sendBtn.disabled = busy;
+      stopBtn.disabled = !busy;
+      statusText.textContent = statusHint || (busy ? `${currentConv} 生成中...` : '空闲');
+    }
+
+    function renderChat() {
+      const list = sessions[currentConv];
+      chatBox.innerHTML = '';
+      if (!list.length) {
+        const empty = document.createElement('div');
+        empty.className = 'empty';
+        empty.innerHTML = `
+          <h3>Phase 1b 可验证能力</h3>
+          <p>支持流式输出、<code>calc</code> 工具调用与回填、<code>AbortController</code> 中断、同会话并发 409 拒绝与 <code>clientRequestId</code> 幂等回放。</p>
+          <div class="quick-row">
+            <button class="quick-btn" data-q="请帮我算一下 (12 + 8) * 3 等于多少？">🧮 帮我算 (12 + 8) * 3</button>
+            <button class="quick-btn" data-q="请用两句话通俗解释什么是 RAG？">💬 两句话解释 RAG</button>
+          </div>`;
+        empty.querySelectorAll('.quick-btn').forEach(btn => {
+          btn.onclick = () => { msgInput.value = btn.dataset.q; sendMessage(); };
+        });
+        chatBox.appendChild(empty);
+        return;
+      }
+
+      for (const item of list) {
+        const wrap = document.createElement('div');
+        wrap.className = `msg ${item.role}`;
+
+        if (item.tools && item.tools.length) {
+          const toolsWrap = document.createElement('div');
+          toolsWrap.className = 'tools-wrap';
+          for (const t of item.tools) {
+            const tc = document.createElement('div');
+            const stateCls = t.status === 'running' ? 'running' : (t.success ? 'ok' : 'err');
+            tc.className = `tool-card ${stateCls}`;
+            const left = document.createElement('span');
+            left.textContent = t.status === 'running'
+              ? `⚙️ 正在执行 ${t.name}(${t.arguments || ''})`
+              : `${t.success ? '✅' : '❌'} ${t.name}(${t.arguments || ''}) → ${t.output ?? ''}`;
+            const right = document.createElement('span');
+            right.textContent = t.status === 'running' ? '运行中...' : '已完成';
+            tc.append(left, right);
+            toolsWrap.appendChild(tc);
+          }
+          wrap.appendChild(toolsWrap);
+        }
+
+        if (item.text || item.role === 'user' || item.error) {
+          const bubble = document.createElement('div');
+          bubble.className = 'bubble';
+          bubble.textContent = item.error ? `[${item.error.code}] ${item.error.message}` : (item.text || '...');
+          if (item.error) bubble.style.color = 'var(--red)';
+          wrap.appendChild(bubble);
+        }
+
+        if (item.meta) {
+          const metaRow = document.createElement('div');
+          metaRow.className = 'meta-row';
+          const addTag = (txt, cls = '') => {
+            const s = document.createElement('span');
+            s.className = `tag ${cls}`.trim();
+            s.textContent = txt;
+            metaRow.appendChild(s);
+          };
+          if (item.meta.replayed) addTag('⚡ 幂等回放命中', 'ok');
+          if (item.meta.stopped) addTag('⏹ 已取消', 'warn');
+          if (item.meta.finishReason) {
+            addTag(`finish: ${item.meta.finishReason}`, item.meta.finishReason === 'length' ? 'warn' : '');
+          }
+          if (item.meta.tokens != null) addTag(`tokens: ${item.meta.tokens}`);
+          if (item.meta.elapsedMs != null) addTag(`${item.meta.elapsedMs}ms`);
+          if (item.meta.requestId) addTag(`req: ${item.meta.requestId.slice(0, 8)}`);
+          wrap.appendChild(metaRow);
+        }
+        chatBox.appendChild(wrap);
+      }
+      chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    function parseSseBlock(block, handlers) {
       let eventName = 'message';
       const dataLines = [];
       for (const line of block.split('\n')) {
@@ -44,59 +418,171 @@
       }
       if (!dataLines.length) return;
       const payload = JSON.parse(dataLines.join('\n'));
-      if (eventName === 'delta') {
-        outEl.textContent += payload.text || '';
-      } else if (eventName === 'done') {
-        const total = payload.usage ? payload.usage.totalTokens : '-';
-        statusEl.textContent = `完成 (${payload.finishReason || 'stop'}, tokens=${total})`;
-      } else if (eventName === 'error') {
-        statusEl.textContent = `错误 [${payload.code}]: ${payload.message}`;
-      }
+      handlers(eventName, payload);
     }
 
-    async function sendChat() {
-      const text = msgEl.value.trim();
-      if (!text) return;
-      outEl.textContent = '';
-      statusEl.textContent = '生成中...';
-      controller = new AbortController();
-      setBusy(true);
+    async function runChatRequest({ message, conversationId, clientRequestId, isReplay = false }) {
+      const assistantItem = { role: 'assistant', text: '', tools: [], meta: null, error: null };
+      sessions[conversationId].push({ role: 'user', text: isReplay ? `[复发幂等请求] ${message}` : message });
+      sessions[conversationId].push(assistantItem);
+      if (conversationId === currentConv) renderChat();
+
+      const startedAt = performance.now();
+      const controller = new AbortController();
+      controllers[conversationId] = controller;
+      if (conversationId === currentConv) {
+        syncComposerState(isReplay ? '验证幂等回放中...' : '模型生成中...');
+      }
 
       try {
         const res = await fetch('/api/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: text, clientRequestId: crypto.randomUUID() }),
+          body: JSON.stringify({ message, conversationId, clientRequestId }),
           signal: controller.signal
         });
+
         if (!res.ok) {
-          const err = await res.json().catch(() => ({ code: res.status, message: res.statusText }));
-          statusEl.textContent = `请求失败 [${err.code}]: ${err.message}`;
+          const err = await res.json().catch(() => ({ code: String(res.status), message: res.statusText }));
+          assistantItem.error = err;
+          if (conversationId === currentConv) renderChat();
+          showToast(`请求被拒绝 HTTP ${res.status} [${err.code}]: ${err.message}`, 'err');
           return;
         }
+
         const reader = res.body.getReader();
         const decoder = new TextDecoder('utf-8');
         let buffer = '';
+
+        const onEvent = (name, data) => {
+          if (name === 'delta') {
+            assistantItem.text += data.text || '';
+          } else if (name === 'tool_started') {
+            statusText.textContent = `执行工具 ${data.toolName}...`;
+            assistantItem.tools.push({
+              id: data.toolCallId, name: data.toolName, arguments: data.arguments || '', status: 'running'
+            });
+          } else if (name === 'tool_finished') {
+            const target = assistantItem.tools.find(t => t.id === data.toolCallId);
+            if (target) {
+              target.status = 'done';
+              target.success = data.success;
+              target.output = data.output;
+            }
+            statusText.textContent = '工具完成，模型继续生成...';
+          } else if (name === 'done') {
+            assistantItem.meta = {
+              requestId: data.requestId,
+              finishReason: data.finishReason || 'stop',
+              tokens: data.usage ? data.usage.totalTokens : null,
+              elapsedMs: Math.round(performance.now() - startedAt),
+              replayed: isReplay
+            };
+            lastCompletedReq = { conversationId, clientRequestId, message };
+            replayBtn.disabled = false;
+          } else if (name === 'error') {
+            assistantItem.error = { code: data.code, message: data.message };
+          }
+          if (conversationId === currentConv) renderChat();
+        };
+
         while (true) {
           const { value, done } = await reader.read();
           if (done) break;
           buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
           const parts = buffer.split('\n\n');
           buffer = parts.pop();
-          parts.forEach(handleSseBlock);
+          parts.forEach(part => parseSseBlock(part, onEvent));
         }
-        if (buffer.trim()) handleSseBlock(buffer);
+        if (buffer.trim()) parseSseBlock(buffer, onEvent);
       } catch (e) {
-        statusEl.textContent = e.name === 'AbortError' ? '已停止' : `网络异常: ${e.message}`;
+        if (e.name === 'AbortError') {
+          assistantItem.meta = {
+            ...(assistantItem.meta || {}),
+            stopped: true,
+            elapsedMs: Math.round(performance.now() - startedAt)
+          };
+          if (conversationId === currentConv) renderChat();
+          showToast('已主动中断流式生成（后端 Cancellation 同步取消）', 'info');
+        } else {
+          assistantItem.error = { code: 'NETWORK', message: e.message };
+          if (conversationId === currentConv) renderChat();
+        }
       } finally {
-        controller = null;
-        setBusy(false);
+        controllers[conversationId] = null;
+        if (conversationId === currentConv) syncComposerState();
       }
     }
 
-    sendBtn.onclick = sendChat;
-    stopBtn.onclick = () => controller && controller.abort();
-    msgEl.onkeydown = (e) => { if (e.ctrlKey && e.key === 'Enter') sendChat(); };
+    function sendMessage() {
+      const text = msgInput.value.trim();
+      if (!text || controllers[currentConv]) return;
+      msgInput.value = '';
+      hideToast();
+      runChatRequest({
+        message: text,
+        conversationId: currentConv,
+        clientRequestId: crypto.randomUUID()
+      });
+    }
+
+    // 故意在当前会话插队发一条独立 fetch，验证后端 409 SESSION_BUSY 而不影响主请求
+    raceBtn.onclick = async () => {
+      try {
+        const res = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            message: '并发插队测试请求',
+            conversationId: currentConv,
+            clientRequestId: crypto.randomUUID()
+          })
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ code: res.status, message: res.statusText }));
+          showToast(`并发拦截成功 HTTP ${res.status} [${err.code}]: ${err.message}`, 'info');
+        } else {
+          // 如果当前恰好没有进行中的请求，则提示先发一条慢问题再点插队
+          await res.body?.cancel();
+          showToast('当前会话空闲，请求正常放行了；请先发一条回答，在“生成中”时点击本按钮即可触发 409', 'info');
+        }
+      } catch (e) {
+        showToast(`插队测试异常: ${e.message}`, 'err');
+      }
+    };
+
+    replayBtn.onclick = () => {
+      if (!lastCompletedReq || controllers[lastCompletedReq.conversationId]) return;
+      currentConv = lastCompletedReq.conversationId;
+      document.querySelectorAll('.seg-btn').forEach(b => b.classList.toggle('active', b.dataset.conv === currentConv));
+      runChatRequest({ ...lastCompletedReq, isReplay: true });
+    };
+
+    clearBtn.onclick = () => {
+      sessions[currentConv] = [];
+      renderChat();
+    };
+
+    document.querySelectorAll('.seg-btn').forEach(btn => {
+      btn.onclick = () => {
+        currentConv = btn.dataset.conv;
+        document.querySelectorAll('.seg-btn').forEach(b => b.classList.toggle('active', b === btn));
+        syncComposerState();
+        renderChat();
+      };
+    });
+
+    sendBtn.onclick = sendMessage;
+    stopBtn.onclick = () => controllers[currentConv] && controllers[currentConv].abort();
+    msgInput.onkeydown = (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+      }
+    };
+
+    checkHealth();
+    renderChat();
   </script>
 </body>
 </html>

@@ -15,15 +15,25 @@
 - PostgreSQL 16 + pgvector（Phase 1.5 起需要，可用本地安装或 `docker compose up -d`）
 - RabbitMQ（仅 Phase 7 异步入库需要，`docker compose --profile mq up -d`）
 
-## 快速运行（Phase 1a：流式对话）
+## 快速运行（Phase 1b：流式对话 + 工具调用）
 
-先配置模型环境变量（密钥不入库）：
+方式一：配置模型环境变量（密钥不入库）：
 
 ```bash
 export LORE_MODEL_BASE_URL="https://your-openai-compatible-endpoint/v1"
 export LORE_MODEL_API_KEY="sk-..."
 export LORE_MODEL_NAME="your-model-name"
 ```
+
+方式二：在项目根目录新建 `application-local.yml`（已在 `.gitignore` 中忽略，不会提交）：
+
+```yaml
+lore:
+  model:
+    api-key: sk-...
+```
+
+`application.yml` 会通过 `spring.config.import: optional:file:./application-local.yml` 自动加载它，缺失也不影响启动。
 
 ```bash
 # 运行单元测试

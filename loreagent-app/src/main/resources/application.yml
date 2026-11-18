@@ -1,6 +1,12 @@
 spring:
   application:
     name: loreagent
+  # 本地密钥放 application-local.yml（已 gitignore），存在时自动加载，缺失也不报错。
+  # 同时兼容“从项目根目录运行”和“从模块目录运行”两种工作目录。
+  config:
+    import:
+      - optional:file:./application-local.yml
+      - optional:file:../application-local.yml
 
 server:
   port: 8080
